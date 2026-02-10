@@ -1,0 +1,14 @@
+name = "nice-k"
+version = "0.1.0"
+defaultTargets = ["nice-k"]
+
+[[lean_lib]]
+name = "NiceK"
+
+[[lean_exe]]
+name = "nice-k"
+root = "Main"
+
+[[require]]
+name = "mathlib"
+scope = "leanprover-community"
