@@ -4,16 +4,31 @@ notation "ℕ" => Nat
 
 def KVec (n : ℕ) := Vector Int n
 
-inductive KVal where
-  | atom : Int → KVal
-  | vec (n : ℕ) : KVec n → KVal
-  -- | generic (n : Nat) (l : List KVal) (h : l.length = n) : KVal
+mutual
+  inductive KVal where
+    | atom : Int → KVal
+    | vec (n : ℕ) : KVec n → KVal
+    | generic (n : ℕ) : KValVec n → KVal
 
-instance : ToString KVal where
-  toString
+  inductive KValVec : ℕ → Type where
+    | nil : KValVec 0
+    | cons : KVal → KValVec n → KValVec (n + 1)
+end
+
+mutual
+  def KVal.toString : KVal → String
     | .atom i => s!"{i}"
     | .vec _n v => s!"{v.toList}"
-    -- | .generic n => s!"({String.intercalate "; " (v.toList.map toString)})"
+    | .generic _n vs => s!"({KValVec.toString vs})"
+
+  def KValVec.toString : KValVec n → String
+    | .nil => ""
+    | .cons v .nil => KVal.toString v
+    | .cons v vs => s!"{KVal.toString v}; {KValVec.toString vs}"
+end
+
+instance : ToString KVal := ⟨KVal.toString⟩
+instance : ToString (KValVec n) := ⟨KValVec.toString⟩
 
 inductive KResult (α : Type) where
   | ok : α → KResult α
@@ -46,6 +61,10 @@ def add (a b : KVal) : KResult KVal :=
       let scalar_vec := Vector.replicate n y
       .ok (.vec n (add_vectors_core v scalar_vec))
 
+  -- Generic cases (not yet implemented)
+  | .generic _ _, _ => .error "Type Error: '+' not yet implemented for generic values"
+  | _, .generic _ _ => .error "Type Error: '+' not yet implemented for generic values"
+
 def iota_core (n : ℕ) : KVec n := Vector.ofFn (fun i => i.val)
 
 def iota (x : KVal) : KResult KVal :=
@@ -62,31 +81,32 @@ def iota (x : KVal) : KResult KVal :=
 
       .ok (.vec n (iota_core n))
 
-  | .vec n v =>
+  | .vec n _v =>
       -- Nice Error #2: Rank/Type Error
       -- In K, !vector is actually valid (odometer/permutation),
       -- but for our subset, we'll mark it as unimplemented or error.
       .error s!"Type Error: '!' (iota) not yet implemented for vectors. Input rank: 1, Shape: {n}"
 
+  | .generic _ _ =>
+      .error "Type Error: '!' (iota) not implemented for generic values"
 
--- A helper to print results clearly
 def run_test (name : String) (res : KResult KVal) : IO Unit := do
   match res with
-  | .ok v => IO.println s!"{name} ✅ : {v}"
-  | .error e => IO.println s!"{name} ❌ : {e}"
+  | .ok v => IO.println s!"ok: {name} : {v}"
+  | .error e => IO.println s!"error: {name} : {e}"
 
 
 
-#eval run_test "Test 1 (!-5)" (iota (atom -5))
+#eval run_test "Test 1 (!-5)" (iota (.atom (-5)))
 
 #eval run_test "Test 1 (!5)" (iota (.atom 5))
--- Output: Test 1 (!5) ✅ : [0, 1, 2, 3, 4]
+-- Output: Test 1 (!5)  : [0, 1, 2, 3, 4]
 
 #eval run_test "Test 2 (!-1)" (iota (.atom (-1)))
--- Output: Test 2 (!-1) ❌ : Domain Error: '!' (iota) requires a non-negative integer. You provided -1.
+-- Output: Test 2 (!-1) : Domain Error: '!' (iota) requires a non-negative integer. You provided -1.
 
 #eval run_test "Test 3 (!vector)" (iota (.vec 3 (Vector.mk #[1, 2, 3] rfl)))
--- Output: Test 3 (!vector) ❌ : Type Error: '!' (iota) not yet implemented for vectors. Input rank: 1, Shape: 3
+-- Output: Test 3 (!vector) : Type Error: '!' (iota) not yet implemented for vectors. Input rank: 1, Shape: 3
 
 def main : IO Unit :=
   IO.println s!"Hello, {hello}!"
