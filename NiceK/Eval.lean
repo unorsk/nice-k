@@ -17,7 +17,7 @@ def apply_dyadic (op : KVerb) (x y : KVal) : KResult KVal :=
   | .dy .add => add x y
   | .mon _ => .error "Syntax Error: Monadic verb used in dyadic position"
 
-partial def eval (e : KExpr) : KResult KVal :=
+def eval (e : KExpr) : KResult KVal :=
   match e with
   | .val v => .ok v
   | .var _ => .error "Value Error: Variables not implemented"
