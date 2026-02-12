@@ -1,100 +1,22 @@
 import NiceK
+import NiceK.Parser
 
-notation "ℕ" => Nat
-
-def KVec (n : ℕ) := Vector Int n
-
-inductive KVal where
-  | atom : Int → KVal
-  | vec (n : ℕ) : KVec n → KVal
-  | generic : List KVal → KVal
-
-def KVal.toString : KVal → String
-  | .atom i => s!"{i}"
-  | .vec _n v => s!"{v.toList}"
-  | .generic l => s!"({String.intercalate "; " (l.map toString)})"
-
-instance : ToString KVal := ⟨KVal.toString⟩
-
-inductive KResult (α : Type) where
-  | ok : α → KResult α
-  | error : String → KResult α
-
-def add_vectors_core {n : ℕ} (v1 : KVec n) (v2 : KVec n) : KVec n :=
-  Vector.add v1 v2
-
-def add (a b : KVal) : KResult KVal :=
-  match a, b with
-  | .atom x, .atom y =>
-      .ok (.atom (x + y))
-
-  | .vec n v1, .vec m v2 =>
-      if h : n = m then
-        -- We cast v2 to type 'KVec n' using the proof 'h'.
-        let v2_cast : KVec n := h ▸ v2
-        .ok (.vec n (add_vectors_core v1 v2_cast))
-      else
-        .error s!"Length Error: Cannot add vector of length {n} to vector of length {m}"
-
-  -- Case 3: Atom + Vector (Scalar Extension)
-  | .atom x, .vec n v =>
-      let scalar_vec := Vector.replicate n x
-      .ok (.vec n (add_vectors_core scalar_vec v))
-
-  -- Case 4: Vector + Atom (Commutative)
-  | .vec n v, .atom y =>
-      let scalar_vec := Vector.replicate n y
-      .ok (.vec n (add_vectors_core v scalar_vec))
-
-  -- Generic cases (not yet implemented)
-  | .generic _, _ => .error "Type Error: '+' not yet implemented for generic values"
-  | _, .generic _ => .error "Type Error: '+' not yet implemented for generic values"
-
-def iota_core (n : ℕ) : KVec n := Vector.ofFn (fun i => i.val)
-
-def iota (x : KVal) : KResult KVal :=
-  match x with
-  | .atom i =>
-    -- Some of K dialects (most?) allow for negative numbers here
-    -- OK
-    -- !-4
-    -- -4 -3 -2 -1
-    if i < 0 then
-      .error s!"Domain Error: '!' (iota) requires a non-negative integer. You provided {i}."
-    else
-      let n : ℕ := i.toNat
-
-      .ok (.vec n (iota_core n))
-
-  | .vec n _v =>
-      -- Nice Error #2: Rank/Type Error
-      -- In K, !vector is actually valid (odometer/permutation),
-      -- but for our subset, we'll mark it as unimplemented or error.
-      .error s!"Type Error: '!' (iota) not yet implemented for vectors. Input rank: 1, Shape: {n}"
-
-  | .generic _ =>
-      .error "Type Error: '!' (iota) not implemented for generic values"
-
-def run_test (name : String) (res : KResult KVal) : IO Unit := do
-  match res with
-  | .ok v => IO.println s!"ok: {name} : {v}"
-  | .error e => IO.println s!"error: {name} : {e}"
-
-
-
-#eval run_test "Test 1 (!-5)" (iota (.atom (-5)))
-
-#eval run_test "Test 1 (!5)" (iota (.atom 5))
--- Output: Test 1 (!5)  : [0, 1, 2, 3, 4]
-
-#eval run_test "Test 2 (!-1)" (iota (.atom (-1)))
--- Output: Test 2 (!-1) : Domain Error: '!' (iota) requires a non-negative integer. You provided -1.
-
-#eval run_test "Test 3 (!vector)" (iota (.vec 3 (Vector.mk #[1, 2, 3] rfl)))
-
-#eval run_test "Test 4" (add (.vec 3 (Vector.mk #[1, 2, 3] rfl)) (.vec 3 (Vector.mk #[1, 2, 3] rfl)))
-#eval run_test "Test 4" (add (.vec 3 (Vector.mk #[1, 2, 3] rfl)) (.vec 4 (Vector.mk #[1, 2, 3, 4] rfl)))
--- Output: Test 3 (!vector) : Type Error: '!' (iota) not yet implemented for vectors. Input rank: 1, Shape: 3
+def run_script (input : String) : IO Unit := do
+  IO.print s!"Input: {input}  =>  "
+  match parse input with
+  | .error e => IO.println e
+  | .ok ast =>
+      -- Optional: Print AST to see structure
+      -- IO.print s!"[AST: {ast}] => "
+      match eval ast with
+      | .ok val => IO.println val
+      | .error e => IO.println e
 
 def main : IO Unit :=
-  IO.println s!"Hello, {hello}!"
+  run_script "5"
+  run_script "!5"
+  run_script "2 + 3"
+  run_script "2 + !3"        -- Should be 2 + (0 1 2) -> 2 3 4
+  run_script "10 + 2 + !3"   -- Right associative check: 10 + (2 + (!3))
+  run_script "! -1"          -- Runtime error check
+  run_script "2 + !2"        -- Vector math

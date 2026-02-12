@@ -1,3 +1,5 @@
--- This module serves as the root of the `NiceK` library.
--- Import modules here that should be built as part of the library.
-import NiceK.Basic
+import NiceK.Types
+import NiceK.AST
+import NiceK.Ops
+import NiceK.Test
+import NiceK.Eval
