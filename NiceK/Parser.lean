@@ -29,7 +29,9 @@ def pVerb : Parser String := do
 
 partial def pExpr : Parser KExpr := do
   skipWs
-  let left ← pVal <|> (pchar '(' *> skipWs *> pExpr <* skipWs <* pchar ')')
+  let left ← pVal
+    <|> (pchar '(' *> skipWs *> pExpr <* skipWs <* pchar ')')
+    <|> (do let op ← pVerb; skipWs; let right ← pExpr; return .monadic op right)
 
   skipWs
 

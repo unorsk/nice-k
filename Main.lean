@@ -10,10 +10,19 @@ def run_script (input : String) : IO Unit := do
       | .ok val => IO.println val
       | .error e => IO.println e
 
+#eval run_script "5"
+#eval run_script "!5"
+#eval run_script "2 + 3"
+#eval run_script "!2 + 3 + (2 + (!3))"
+#eval run_script "!2 + 3 + (2 + !3)"
+#eval run_script "!2 + 3 + 2 + !3"
+#eval run_script "!2 + 3 + 2 + !3"
+#eval run_script "2 + 3 + 2 + !3"
+#eval run_script "!2 + 3 + 2 + 3"
+#eval run_script "2 + !3"        -- 2 + (0 1 2) -> 2 3 4
+#eval run_script "10 + 2 + !3"   -- 10 + (2 + (!3))
+#eval run_script "! -1"          -- Runtime error check
+
+
 def main : IO Unit := do
-  run_script "5"
-  run_script "!5"
-  run_script "2 + 3"
-  run_script "2 + !3"        -- 2 + (0 1 2) -> 2 3 4
-  run_script "10 + 2 + !3"   -- 10 + (2 + (!3))
-  run_script "! -1"          -- Runtime error check
+  IO.println "Hello"
