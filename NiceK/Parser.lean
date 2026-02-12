@@ -24,7 +24,7 @@ def pVal : Parser KExpr := do
   return .val (.atom i)
 
 def pVerb : Parser String := do
-  let c ← satisfy (fun c => c == '+' || c == '!' || c == '-' || c == '*')
+  let c ← satisfy (fun c => c == '+' || c == '!' || c == '-' || c == '*' || c == '#')
   return c.toString
 
 partial def pExpr : Parser KExpr := do

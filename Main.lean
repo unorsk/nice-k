@@ -10,6 +10,10 @@ def run_script (input : String) : IO Unit := do
       | .ok val => IO.println val
       | .error e => IO.println e
 
+#eval run_script "!2 3"
+#eval run_script "1 + #1"
+#eval run_script "#1"
+#eval run_script "5"
 #eval run_script "5"
 #eval run_script "!5"
 #eval run_script "2 + 3"

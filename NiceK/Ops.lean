@@ -37,8 +37,18 @@ def iota (x : KVal) : KResult KVal :=
       let n : ℕ := i.toNat
       .ok (.vec n (iota_core n))
 
-  | .vec n _v =>
-      .error s!"Type Error: '!' (iota) not yet implemented for vectors. Input rank: 1, Shape: {n}"
+  | .vec n v =>
+      let dims := v.toList
+      if dims.any (· < 0) then
+        .error "Domain Error: '!' (iota) requires all non-negative integers"
+      else
+        let natDims := dims.map Int.toNat
+        let total := natDims.foldl (· * ·) 1
+        let rows := (List.range natDims.length).map fun i =>
+          let stride := (natDims.drop (i + 1)).foldl (· * ·) 1
+          let row := (List.range total).map fun p => Int.ofNat ((p / stride) % natDims[i]!)
+          KVal.vec total (Vector.ofFn (fun j => row[j.val]!))
+        .ok (.generic rows)
 
   | .generic _ =>
       .error "Type Error: '!' (iota) not implemented for generic values"

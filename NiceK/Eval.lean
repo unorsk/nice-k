@@ -4,10 +4,9 @@ import NiceK.Ops
 
 def apply_monadic (op : String) (x : KVal) : KResult KVal :=
   match op, x with
-  | "!", .atom i =>
-      if i < 0 then .error "Domain Error: '!' requires non-negative"
-      else .ok (.vec i.toNat (iota_core i.toNat))
-  | "!", _ => .error "Type Error: '!' not implemented for this type"
+  | "#", .vec _n v => .ok (.atom v.size)
+  | "#", .atom _i => .ok (.atom 1)
+  | "!", x => iota x
   | _, _ => .error s!"Syntax Error: Unknown monadic operator '{op}'"
 
 def apply_dyadic (op : String) (x y : KVal) : KResult KVal :=
