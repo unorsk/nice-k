@@ -19,9 +19,18 @@ def pInt : Parser Int := do
   | some _ => return -val
   | none   => return val
 
+def pSpaces1 : Parser Unit := do
+  let _ ← many1 (satisfy fun c => c == ' ' || c == '\t')
+
 def pVal : Parser KExpr := do
-  let i ← pInt
-  return .val (.atom i)
+  let first ← pInt
+  let rest ← many (attempt (pSpaces1 *> pInt))
+  let ints := first :: rest.toList
+  if ints.length == 1 then
+    return .val (.atom first)
+  else
+    let n := ints.length
+    return .val (.vec n (Vector.ofFn (fun i => ints[i.val]!)))
 
 def pVerb : Parser String := do
   let c ← satisfy (fun c => c == '+' || c == '!' || c == '-' || c == '*' || c == '#')
