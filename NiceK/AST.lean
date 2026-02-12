@@ -12,4 +12,4 @@ inductive KExpr where
   -- deriving Repr
 
 -- instance : ToString KExpr := ⟨fun e => s!"{repr e}"⟩
-instance : ToString KExpr := ⟨fun e => s!"e"⟩
+instance : ToString KExpr := ⟨fun _e => s!"e"⟩

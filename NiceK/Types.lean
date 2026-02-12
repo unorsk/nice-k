@@ -17,3 +17,4 @@ instance : ToString KVal := ⟨KVal.toString⟩
 inductive KResult (α : Type) where
   | ok : α → KResult α
   | error : String → KResult α
+deriving Inhabited

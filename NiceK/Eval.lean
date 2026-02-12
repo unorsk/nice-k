@@ -1,4 +1,5 @@
 import NiceK.Types
+import NiceK.AST
 import NiceK.Ops
 
 def apply_monadic (op : String) (x : KVal) : KResult KVal :=
