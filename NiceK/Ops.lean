@@ -3,7 +3,7 @@ import NiceK.Types
 def add_vectors_core {n : ℕ} (v1 : KVec n) (v2 : KVec n) : KVec n :=
   Vector.add v1 v2
 
-def add (a b : KVal) : KResult KVal :=
+def add (a b : KVal) : Except KError KVal :=
   match a, b with
   | .atom x, .atom y =>
       .ok (.atom (x + y))
@@ -13,7 +13,7 @@ def add (a b : KVal) : KResult KVal :=
         let v2_cast : KVec n := h ▸ v2
         .ok (.vec n (add_vectors_core v1 v2_cast))
       else
-        .error s!"Length Error: Cannot add vector of length {n} to vector of length {m}"
+        .error { kind := .length, message := s!"Cannot add vector of length {n} to vector of length {m}" }
 
   | .atom x, .vec n v =>
       let scalar_vec := Vector.replicate n x
@@ -23,16 +23,16 @@ def add (a b : KVal) : KResult KVal :=
       let scalar_vec := Vector.replicate n y
       .ok (.vec n (add_vectors_core v scalar_vec))
 
-  | .generic _, _ => .error "Type Error: '+' not yet implemented for generic values"
-  | _, .generic _ => .error "Type Error: '+' not yet implemented for generic values"
+  | .generic _, _ => .error { kind := .type, message := "'+' not yet implemented for generic values" }
+  | _, .generic _ => .error { kind := .type, message := "'+' not yet implemented for generic values" }
 
 def iota_core (n : ℕ) : KVec n := Vector.ofFn (fun i => i.val)
 
-def iota (x : KVal) : KResult KVal :=
+def iota (x : KVal) : Except KError KVal :=
   match x with
   | .atom i =>
     if i < 0 then
-      .error s!"Domain Error: '!' (iota) requires a non-negative integer. You provided {i}."
+      .error { kind := .domain, message := s!"'!' (iota) requires a non-negative integer. You provided {i}." }
     else
       let n : ℕ := i.toNat
       .ok (.vec n (iota_core n))
@@ -40,15 +40,17 @@ def iota (x : KVal) : KResult KVal :=
   | .vec n v =>
       let dims := v.toList
       if dims.any (· < 0) then
-        .error "Domain Error: '!' (iota) requires all non-negative integers"
+        .error { kind := .domain, message := "'!' (iota) requires all non-negative integers" }
       else
-        let natDims := dims.map Int.toNat
+        let natDims := (dims.map Int.toNat).toArray
+        let vDims : Vector Nat natDims.size := ⟨natDims, rfl⟩
         let total := natDims.foldl (· * ·) 1
-        let rows := (List.range natDims.length).map fun i =>
-          let stride := (natDims.drop (i + 1)).foldl (· * ·) 1
-          let row := (List.range total).map fun p => Int.ofNat ((p / stride) % natDims[i]!)
-          KVal.vec total (Vector.ofFn (fun j => row[j.val]!))
+        let rows := (List.finRange vDims.size).map fun (i : Fin vDims.size) =>
+          let stride := ((natDims.toList).drop (i.val + 1)).foldl (· * ·) 1
+          let row : Vector Int total := Vector.ofFn (fun (j : Fin total) =>
+            Int.ofNat ((j.val / stride) % vDims[i]))
+          KVal.vec total row
         .ok (.generic rows)
 
   | .generic _ =>
-      .error "Type Error: '!' (iota) not implemented for generic values"
+      .error { kind := .type, message := "'!' (iota) not implemented for generic values" }

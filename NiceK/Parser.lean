@@ -68,7 +68,7 @@ partial def pLine : Parser KExpr := do
   )
   <|> pExpr
 
-def parse (s : String) : KResult KExpr :=
+def parse (s : String) : Except KError KExpr :=
   match Parser.run pLine s with
   | .ok val => .ok val
-  | .error e => .error s!"Parse Error: {e}"
+  | .error e => .error { kind := .parse, message := e }

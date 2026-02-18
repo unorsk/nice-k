@@ -3,15 +3,16 @@ import NiceK.Parser
 
 def run_script (input : String) : IO Unit := do
   IO.print s!"Input: {input}  =>  "
-  match parse input with
-  | .error e => IO.println e
+  IO.println $  match parse input with
+  | .error e => toString e
   | .ok ast =>
       match eval ast with
-      | .ok val => IO.println val
-      | .error e => IO.println e
+      | .ok val => toString val
+      | .error e => toString e
 
 #eval run_script "!2 3"
 #eval run_script "1 + #1"
+#eval run_script "1 + #(1 1)"
 #eval run_script "#1"
 #eval run_script "5"
 #eval run_script "5"

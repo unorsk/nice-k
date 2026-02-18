@@ -1,6 +1,6 @@
 import NiceK.Ops
 
-def run_test (name : String) (res : KResult KVal) : IO Unit := do
+def run_test (name : String) (res : Except KError KVal) : IO Unit := do
   match res with
   | .ok v => IO.println s!"ok: {name} : {v}"
   | .error e => IO.println s!"error: {name} : {e}"
