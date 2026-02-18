@@ -32,13 +32,20 @@ def pVal : Parser KExpr := do
     let n := ints.length
     return .val (.vec n (Vector.ofFn (fun i => ints[i.val]!)))
 
-def pVerb : Parser KVerb := do
+def pBaseVerb : Parser KVerb := do
   let c ← satisfy (fun c => c == '+' || c == '!' || c == '#')
   match c with
   | '+' => return .dy .add
   | '!' => return .mon .iota
   | '#' => return .mon .count
   | _   => fail s!"Unknown verb '{c}'"
+
+def pVerb : Parser KVerb := do
+  let v ← pBaseVerb
+  let adv ← optional (pchar '\'')
+  match adv with
+  | none   => pure v
+  | some _ => pure (.adv .each v)
 
 partial def pExpr : Parser KExpr := do
   skipWs
@@ -68,7 +75,13 @@ partial def pLine : Parser KExpr := do
   )
   <|> pExpr
 
+def pTop : Parser KExpr := do
+  let e ← pLine
+  skipWs
+  eof
+  pure e
+
 def parse (s : String) : Except KError KExpr :=
-  match Parser.run pLine s with
+  match Parser.run pTop s with
   | .ok val => .ok val
   | .error e => .error { kind := .parse, message := e }

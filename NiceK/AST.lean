@@ -13,11 +13,22 @@ instance : ToString KMonadic := ⟨fun m => match m with
   | .iota => "iota"
   | .count => "count"⟩
 
-inductive KVerb | mon (m : KMonadic) | dy (d : KDyadaic)
+inductive KAdverb | each
 
-instance : ToString KVerb := ⟨fun v => match v with
-  | .mon m => toString m
-  | .dy d => toString d⟩
+instance : ToString KAdverb := ⟨fun a => match a with
+  | .each => "'"⟩
+
+inductive KVerb
+  | mon (m : KMonadic)
+  | dy (d : KDyadaic)
+  | adv (a : KAdverb) (v : KVerb)
+
+def KVerb.toString : KVerb → String
+  | .mon m => ToString.toString m
+  | .dy d => ToString.toString d
+  | .adv a v => s!"{v.toString}{a}"
+
+instance : ToString KVerb := ⟨KVerb.toString⟩
 
 
 inductive KExpr where
@@ -27,9 +38,7 @@ inductive KExpr where
   | monadic : KVerb → KExpr → KExpr        -- Operator, Right (e.g., !5)
 
 instance : ToString KExpr := ⟨fun e => match e with
-  | .val v => toString v
+  | .val v => ToString.toString v
   | .var x => x
-  | .dyadic (.dy d) l r => toString d
-  | .dyadic (.mon m) l r => toString m
-  | .monadic (.mon m) r => toString m
-  | .monadic (.dy d) r => toString d⟩
+  | .dyadic op _ _ => ToString.toString op
+  | .monadic op _ => ToString.toString op⟩
