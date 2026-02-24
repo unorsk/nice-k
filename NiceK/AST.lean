@@ -7,14 +7,16 @@ We keep symbols **unclassified** here; the evaluator decides the role. -/
 
 inductive VerbSym where
   | plus    -- + : add (dyadic) / flip (monadic)
+  | minus   -- - : subtract (dyadic) / negate (monadic)
   | bang    -- ! : mod (dyadic) / iota (monadic)
   | hash    -- # : take (dyadic) / count (monadic)
 deriving BEq, Inhabited
 
 def VerbSym.toString : VerbSym → String
-  | .plus => "+"
-  | .bang => "!"
-  | .hash => "#"
+  | .plus  => "+"
+  | .minus => "-"
+  | .bang  => "!"
+  | .hash  => "#"
 
 instance : ToString VerbSym := ⟨VerbSym.toString⟩
 

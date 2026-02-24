@@ -42,6 +42,7 @@ def apply_monadic (op : KVerb) (x : KVal) : Except KError KVal :=
     | .vec _n v   => .ok (.atom v.size)
     | .atom _     => .ok (.atom 1)
     | .generic l  => .ok (.atom l.length)
+  | .prim .minus => negate x
   | .prim .plus  =>
     -- monadic + is "flip" for tables; for atoms/vecs it's identity
     .ok x
@@ -58,8 +59,9 @@ def apply_monadic (op : KVerb) (x : KVal) : Except KError KVal :=
 /-- Apply a verb dyadically. -/
 def apply_dyadic (op : KVerb) (x y : KVal) : Except KError KVal :=
   match op with
-  | .prim .plus => add x y
-  | .prim .bang =>
+  | .prim .plus  => add x y
+  | .prim .minus => sub x y
+  | .prim .bang  =>
     .error { kind := .type,
              message := "Dyadic '!' (mod/key) not yet implemented" }
   | .prim .hash =>

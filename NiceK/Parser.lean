@@ -4,15 +4,17 @@ import NiceK.Lexer
 
 /-! ## Parser
 
-Right-to-left reducer for K expressions.
+Right-to-left, two-level parser for K expressions.
 
 Pipeline: `String → tokenize → List Token → parse → KExpr`
 
 The parser works in two stages:
 1. Convert flat token list into `PItem`s (handling parens recursively, grouping
    consecutive ints into vectors, and attaching adverbs to preceding verbs).
-2. Reduce the item list right-to-left into a `KExpr`, deciding monadic vs
-   dyadic based on context.
+2. Parse the item list with two precedence levels:
+   - **Term**: a noun optionally preceded by a chain of monadic verbs
+     (monadic verbs bind tightly to their immediate right).
+   - **Expr**: terms connected by dyadic verbs, right-associative.
 
 Uses fuel-based recursion (`Nat`) — no `partial`, no `!`. -/
 
@@ -24,6 +26,7 @@ inductive PItem where
 private def charToVerbSym (c : Char) : Except KError VerbSym :=
   match c with
   | '+' => .ok .plus
+  | '-' => .ok .minus
   | '!' => .ok .bang
   | '#' => .ok .hash
   | _   => .error { kind := .parse, message := s!"Unknown verb symbol '{c}'" }
@@ -40,31 +43,41 @@ private def intsToVal : List Int → KVal
     let arr := is.toArray
     .vec arr.size ⟨arr, rfl⟩
 
-/-! ### Stage 2: Right-to-left reduction
+/-! ### Stage 2: Two-level precedence parser
 
-Given `[item₁, item₂, ..., itemₙ]`, we reverse and fold:
-- A **noun** at the rightmost position becomes the initial expression.
-- A **verb** followed (to its right) by an expression with no noun
-  to its left → **monadic** application.
-- A **noun** to the left of a verb → **dyadic** application. -/
+**Term**: zero or more monadic verbs followed by a noun.
+Monadic verbs bind tightly — `!2+3` parses as `(!2)+3`, not `!(2+3)`.
 
-/-- Reduce a reversed item list (rightmost-first) into a KExpr.
-    `acc` is the expression built so far (from the right). -/
-private def reduceRev : List PItem → Option KExpr → Except KError KExpr
-  | [], some acc => .ok acc
-  | [], none     => .error { kind := .parse, message := "Empty expression" }
-  | .noun e :: rest, none => reduceRev rest (some e)
-  | .noun _ :: _, some _ =>
-    .error { kind := .parse, message := "Two nouns with no verb between them" }
-  | .verb v :: .noun left :: rest, some acc =>
-    reduceRev rest (some (.dyadic v left acc))
-  | .verb v :: rest, some acc =>
-    reduceRev rest (some (.monadic v acc))
-  | .verb v :: _, none =>
-    .error { kind := .parse, message := s!"Verb '{v}' with no argument to its right" }
+**Expr**: terms connected by dyadic verbs, right-associative.
+`1+2+3` parses as `1+(2+3)`. -/
 
-private def reduceItems (items : List PItem) : Except KError KExpr :=
-  reduceRev items.reverse none
+/-- Parse a term: a chain of monadic verbs applied to a noun.
+    Returns `(expr, remaining-items)`. -/
+private def parseTerm (fuel : Nat) (items : List PItem) : Except KError (KExpr × List PItem) :=
+  match fuel with
+  | 0 => .error { kind := .parse, message := "Expression too deeply nested" }
+  | fuel + 1 =>
+    match items with
+    | [] => .error { kind := .parse, message := "Expected expression, got end of input" }
+    | .verb v :: rest => do
+      let (inner, rest') ← parseTerm fuel rest
+      .ok (.monadic v inner, rest')
+    | .noun e :: rest => .ok (e, rest)
+
+/-- Parse an expression: a term followed by zero or more `(verb term)` pairs.
+    Dyadic application is right-associative. -/
+private def parseExpr (fuel : Nat) (items : List PItem) : Except KError KExpr :=
+  match fuel with
+  | 0 => .error { kind := .parse, message := "Expression too deeply nested" }
+  | fuel + 1 => do
+    let (left, rest) ← parseTerm fuel items
+    match rest with
+    | [] => .ok left
+    | .verb v :: rest' => do
+      let right ← parseExpr fuel rest'
+      .ok (.dyadic v left right)
+    | .noun _ :: _ =>
+      .error { kind := .parse, message := "Two nouns with no verb between them" }
 
 /-! ### Stage 1: Token list → PItem list
 
@@ -100,12 +113,12 @@ private def collectInts : List Token → List Int × List Token
   | ts => ([], ts)
 
 /-- Attach any trailing adverb tokens to a verb. -/
-private def attachAdverbs (v : KVerb) : List Token → KVerb × List Token
-  | { kind := .adverb c, .. } :: ts =>
+private def attachAdverbs (v : KVerb) : List Token → Except KError (KVerb × List Token)
+  | { kind := .adverb c, span := sp } :: ts =>
     match charToAdverbSym c with
     | .ok a  => attachAdverbs (.adv a v) ts
-    | .error _ => (v, { kind := .adverb c, span := ⟨0,0⟩ } :: ts)
-  | ts => (v, ts)
+    | .error e => .error { e with span := some sp }
+  | ts => .ok (v, ts)
 
 /-- Build PItem list from tokens.  `fuel` bounds recursion depth
     (initialized to total token count). -/
@@ -127,7 +140,7 @@ private def buildItems (fuel : Nat) (tokens : List Token) : Except KError (List 
       | .verb c => do
         let sym ← charToVerbSym c
         let v := KVerb.prim sym
-        let (v', rest) := attachAdverbs v ts
+        let (v', rest) ← attachAdverbs v ts
         let items ← buildItems fuel rest
         .ok (.verb v' :: items)
       | .adverb _ =>
@@ -135,7 +148,7 @@ private def buildItems (fuel : Nat) (tokens : List Token) : Except KError (List 
       | .lparen => do
         let (inner, rest) ← findClose ts 1
         let innerItems ← buildItems fuel inner
-        let innerExpr ← reduceItems innerItems
+        let innerExpr ← parseExpr (innerItems.length + 1) innerItems
         let items ← buildItems fuel rest
         .ok (.noun innerExpr :: items)
       | .rparen =>
@@ -150,4 +163,4 @@ def parse (s : String) : Except KError KExpr := do
   let tokens ← tokenize s
   let fuel := tokens.length + 1
   let items ← buildItems fuel tokens
-  reduceItems items
+  parseExpr (items.length + 1) items

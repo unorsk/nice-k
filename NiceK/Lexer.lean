@@ -4,7 +4,13 @@ import NiceK.Types
 
 Tokenizes a K source string into a list of tokens with source spans.
 Single-function state machine with lexicographic termination on
-`(chars.length, phase.rank)` — no `partial`, no `!`. -/
+`(chars.length, phase.rank)` — no `partial`, no `!`.
+
+The `nctx` ("negative context") flag controls whether `-` followed by
+a digit starts a negative literal or is the subtract verb:
+  - `true`  at start of input, after whitespace, `(`, a verb, or an adverb
+  - `false` after a noun (int, ident, `)`)
+This gives correct behaviour for `1-2` (subtract) vs `1 -2` (vector). -/
 
 inductive TokenKind where
   | int    : Int → TokenKind
@@ -65,8 +71,12 @@ private def mkIdentToken (startPos endPos : Nat) (acc : List Char) : Token :=
     - In `ready`, we always consume a char → length decreases.
     - In `digits`/`ident` with matching char, we consume → length decreases.
     - In `digits`/`ident` with non-matching char, we switch to `ready`
-      on the same list → length same, rank decreases (1→0). -/
-def lexCore (phase : LexPhase) (chars : List Char) (pos : Nat)
+      on the same list → length same, rank decreases (1→0).
+
+    `nctx` ("negative context"): when `true`, a `-` followed by a digit
+    starts a negative integer literal.  When `false`, `-` is always the
+    subtract verb.  See module docstring for when each value is used. -/
+def lexCore (phase : LexPhase) (chars : List Char) (pos : Nat) (nctx : Bool)
     : Except KError (List Token) :=
   match phase, chars with
   -- End of input
@@ -77,55 +87,58 @@ def lexCore (phase : LexPhase) (chars : List Char) (pos : Nat)
   -- Accumulating digits
   | .digits sp acc neg, c :: cs =>
     if c.isDigit then
-      lexCore (.digits sp (c :: acc) neg) cs (pos + 1)
+      lexCore (.digits sp (c :: acc) neg) cs (pos + 1) nctx
     else
       -- Flush the number token, re-dispatch current char
       let tok := mkIntToken sp pos acc neg
-      do let rest ← lexCore .ready (c :: cs) pos
+      do let rest ← lexCore .ready (c :: cs) pos false  -- just emitted a noun
          .ok (tok :: rest)
 
   -- Accumulating identifier
   | .ident sp acc, c :: cs =>
     if c.isAlphanum || c == '_' then
-      lexCore (.ident sp (c :: acc)) cs (pos + 1)
+      lexCore (.ident sp (c :: acc)) cs (pos + 1) nctx
     else
       let tok := mkIdentToken sp pos acc
-      do let rest ← lexCore .ready (c :: cs) pos
+      do let rest ← lexCore .ready (c :: cs) pos false  -- just emitted a noun
          .ok (tok :: rest)
 
   -- Ready: dispatch on current character
   | .ready, c :: cs =>
     if c == ' ' || c == '\t' || c == '\n' then
-      lexCore .ready cs (pos + 1)
+      lexCore .ready cs (pos + 1) true  -- whitespace → nctx true
     else if c == '(' then
-      do let rest ← lexCore .ready cs (pos + 1)
+      do let rest ← lexCore .ready cs (pos + 1) true  -- after ( → nctx true
          .ok ({ kind := .lparen, span := ⟨pos, pos + 1⟩ } :: rest)
     else if c == ')' then
-      do let rest ← lexCore .ready cs (pos + 1)
+      do let rest ← lexCore .ready cs (pos + 1) false  -- after ) → noun
          .ok ({ kind := .rparen, span := ⟨pos, pos + 1⟩ } :: rest)
     else if isAdverbChar c then
-      do let rest ← lexCore .ready cs (pos + 1)
+      do let rest ← lexCore .ready cs (pos + 1) true  -- after adverb → nctx true
          .ok ({ kind := .adverb c, span := ⟨pos, pos + 1⟩ } :: rest)
     else if isVerbChar c then
-      do let rest ← lexCore .ready cs (pos + 1)
+      do let rest ← lexCore .ready cs (pos + 1) true  -- after verb → nctx true
          .ok ({ kind := .verb c, span := ⟨pos, pos + 1⟩ } :: rest)
     else if c == '-' then
-      -- Peek: if next char is a digit, start negative literal
-      match cs.head? with
-      | some d =>
-        if d.isDigit then
-          -- Enter digits phase for negative number; consume '-' only,
-          -- the digit will be consumed on next iteration in .digits phase.
-          lexCore (.digits pos [] true) cs (pos + 1)
-        else
-          do let rest ← lexCore .ready cs (pos + 1)
-             .ok ({ kind := .verb '-', span := ⟨pos, pos + 1⟩ } :: rest)
-      | none =>
-        .ok [{ kind := .verb '-', span := ⟨pos, pos + 1⟩ }]
+      if nctx then
+        -- Could be a negative literal
+        match cs.head? with
+        | some d =>
+          if d.isDigit then
+            lexCore (.digits pos [] true) cs (pos + 1) nctx
+          else
+            do let rest ← lexCore .ready cs (pos + 1) true
+               .ok ({ kind := .verb '-', span := ⟨pos, pos + 1⟩ } :: rest)
+        | none =>
+          .ok [{ kind := .verb '-', span := ⟨pos, pos + 1⟩ }]
+      else
+        -- After a noun: always the subtract verb
+        do let rest ← lexCore .ready cs (pos + 1) true
+           .ok ({ kind := .verb '-', span := ⟨pos, pos + 1⟩ } :: rest)
     else if c.isDigit then
-      lexCore (.digits pos [c] false) cs (pos + 1)
+      lexCore (.digits pos [c] false) cs (pos + 1) nctx
     else if c.isAlpha || c == '_' then
-      lexCore (.ident pos [c]) cs (pos + 1)
+      lexCore (.ident pos [c]) cs (pos + 1) nctx
     else
       .error { kind := .parse, message := s!"Unexpected character '{c}'",
                span := some ⟨pos, pos + 1⟩ }
@@ -133,4 +146,4 @@ termination_by (chars.length, phase.rank)
 decreasing_by all_goals simp [LexPhase.rank]; omega
 
 def tokenize (s : String) : Except KError (List Token) :=
-  lexCore .ready s.toList 0
+  lexCore .ready s.toList 0 true
