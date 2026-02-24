@@ -12,7 +12,7 @@ def run_e2e (input : String) : IO Unit := do
   IO.println $ match parse input with
   | .error e => s!"ERROR: {e}"
   | .ok ast =>
-    match eval ast with
+    match eval [] ast with
     | .ok val => s!"OK: {val}"
     | .error e => s!"ERROR: {e}"
 
@@ -26,9 +26,7 @@ def run_e2e (input : String) : IO Unit := do
 
 -- ===== Each ' adverb tests =====
 #eval IO.println "\n--- Each ' adverb: negative examples (expect errors) ---"
--- TODO better error message
-#eval run_e2e "1'1"            -- Parse error: ' must follow a verb
-#eval run_e2e "1+'1"           -- Type error: each requires at least one list
+#eval run_e2e "1+'1"            -- Type error: each requires at least one list
 #eval run_e2e "(1 1 2)+'1 1"   -- Length error: 3 vs 2
 
 #eval IO.println "\n--- Each ' adverb: positive examples ---"

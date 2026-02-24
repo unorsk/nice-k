@@ -1,44 +1,55 @@
 import NiceK.Types
-import Lean.Parser
-import Init.Data.Repr
 
-inductive KDyadaic | add --| sub | mul | take
+/-! ## Verb and Adverb Symbols
 
-instance : ToString KDyadaic := ⟨fun d => match d with
-  | .add => "+"⟩
+In K, the same symbol can be monadic or dyadic depending on context.
+We keep symbols **unclassified** here; the evaluator decides the role. -/
 
-inductive KMonadic | iota | count --| neg
+inductive VerbSym where
+  | plus    -- + : add (dyadic) / flip (monadic)
+  | bang    -- ! : mod (dyadic) / iota (monadic)
+  | hash    -- # : take (dyadic) / count (monadic)
+deriving BEq, Inhabited
 
-instance : ToString KMonadic := ⟨fun m => match m with
-  | .iota => "iota"
-  | .count => "count"⟩
+def VerbSym.toString : VerbSym → String
+  | .plus => "+"
+  | .bang => "!"
+  | .hash => "#"
 
-inductive KAdverb | each
+instance : ToString VerbSym := ⟨VerbSym.toString⟩
 
-instance : ToString KAdverb := ⟨fun a => match a with
-  | .each => "'"⟩
+inductive AdverbSym where
+  | each    -- '
+deriving BEq, Inhabited
 
-inductive KVerb
-  | mon (m : KMonadic)
-  | dy (d : KDyadaic)
-  | adv (a : KAdverb) (v : KVerb)
+def AdverbSym.toString : AdverbSym → String
+  | .each => "'"
+
+instance : ToString AdverbSym := ⟨AdverbSym.toString⟩
+
+/-- A verb is a primitive symbol optionally modified by adverbs. -/
+inductive KVerb where
+  | prim : VerbSym → KVerb
+  | adv  : AdverbSym → KVerb → KVerb
 
 def KVerb.toString : KVerb → String
-  | .mon m => ToString.toString m
-  | .dy d => ToString.toString d
-  | .adv a v => s!"{v.toString}{a}"
+  | .prim s   => ToString.toString s
+  | .adv a v  => s!"{v.toString}{a}"
 
 instance : ToString KVerb := ⟨KVerb.toString⟩
 
+/-! ## Expressions -/
 
 inductive KExpr where
-  | val : KVal → KExpr                     -- A raw value (number, list)
-  | var : String → KExpr                   -- A variable name (e.g., x, y)
-  | dyadic : KVerb → KExpr → KExpr → KExpr -- Operator, Left, Right (e.g., 1 + 2)
-  | monadic : KVerb → KExpr → KExpr        -- Operator, Right (e.g., !5)
+  | val     : KVal → KExpr
+  | var     : String → KExpr
+  | monadic : KVerb → KExpr → KExpr
+  | dyadic  : KVerb → KExpr → KExpr → KExpr
 
-instance : ToString KExpr := ⟨fun e => match e with
-  | .val v => ToString.toString v
-  | .var x => x
-  | .dyadic op _ _ => ToString.toString op
-  | .monadic op _ => ToString.toString op⟩
+def KExpr.toString : KExpr → String
+  | .val v            => ToString.toString v
+  | .var x            => x
+  | .monadic op arg   => s!"({op} {arg.toString})"
+  | .dyadic op l r    => s!"({l.toString} {op} {r.toString})"
+
+instance : ToString KExpr := ⟨KExpr.toString⟩

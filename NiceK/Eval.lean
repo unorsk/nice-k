@@ -2,74 +2,106 @@ import NiceK.Types
 import NiceK.AST
 import NiceK.Ops
 
+/-! ## Evaluator
+
+Key design choices:
+- **Right-to-left evaluation**: for dyadic ops, the right operand is
+  evaluated before the left.  This is invisible today (no side effects)
+  but will matter once assignment is added.
+- **Environment plumbing**: `KEnv` is threaded through for future
+  variable support.
+- Verb dispatch is based on `VerbSym`, deciding monadic vs dyadic
+  at the call site. -/
+
+abbrev KEnv := List (String × KVal)
+
 private def withCtx (ctx : String) (m : Except KError α) : Except KError α :=
   m.mapError (·.withContext ctx)
 
 def kval_to_list : KVal → List KVal
-  | .atom i => [.atom i]
-  | .vec n v => (v.toList).map .atom
+  | .atom i    => [.atom i]
+  | .vec _n v  => v.toList.map .atom
   | .generic l => l
 
-def list_to_kval (l : List KVal) : KVal :=
-  let n := l.length
-  match l.mapM (fun v => match v with | .atom i => some i | _ => none) with
-  | some ints => .vec n (Vector.ofFn (fun i => ints[i.val]!))
-  | none => .generic l
+def list_to_kval : List KVal → KVal
+  | []  => .generic []
+  | [.atom i] => .atom i
+  | l   =>
+    match l.mapM (fun v => match v with | .atom i => some i | _ => none) with
+    | some ints =>
+      let arr := ints.toArray
+      .vec arr.size ⟨arr, rfl⟩
+    | none => .generic l
 
-def apply_monadic (op : KVerb) (x : KVal) : Except KError KVal := do
+/-- Apply a verb monadically. -/
+def apply_monadic (op : KVerb) (x : KVal) : Except KError KVal :=
   match op with
-  | .mon .count =>
+  | .prim .bang  => iota x
+  | .prim .hash  =>
     match x with
-    | .vec _n v => .ok (.atom v.size)
-    | .atom _i  => .ok (.atom 1)
-    | .generic l => .ok (.atom l.length)
-  | .mon .iota => iota x
-  | .dy _ => throw { kind := .syntax, message := "Dyadic verb used in monadic position" }
+    | .vec _n v   => .ok (.atom v.size)
+    | .atom _     => .ok (.atom 1)
+    | .generic l  => .ok (.atom l.length)
+  | .prim .plus  =>
+    -- monadic + is "flip" for tables; for atoms/vecs it's identity
+    .ok x
   | .adv .each base =>
     match x with
     | .atom _ =>
-      let msg := s!"{base}' (each) requires a list argument, got an atom"
-      throw { kind := .type, message := msg }
+      .error { kind := .type,
+               message := s!"{base}' (each) requires a list argument, got an atom" }
     | _ =>
       let items := kval_to_list x
-      let results ← items.mapM (fun item => apply_monadic base item)
-      return list_to_kval results
+      do let results ← items.mapM (fun item => apply_monadic base item)
+         .ok (list_to_kval results)
 
-def apply_dyadic (op : KVerb) (x y : KVal) : Except KError KVal := do
+/-- Apply a verb dyadically. -/
+def apply_dyadic (op : KVerb) (x y : KVal) : Except KError KVal :=
   match op with
-  | .dy .add => add x y
-  | .mon _ => throw { kind := .syntax, message := "Monadic verb used in dyadic position" }
+  | .prim .plus => add x y
+  | .prim .bang =>
+    .error { kind := .type,
+             message := "Dyadic '!' (mod/key) not yet implemented" }
+  | .prim .hash =>
+    .error { kind := .type,
+             message := "Dyadic '#' (take/reshape) not yet implemented" }
   | .adv .each base =>
     match x, y with
     | .atom _, .atom _ =>
-      let msg := s!"{base}' (each) requires at least one list argument, got two atoms"
-      throw { kind := .type, message := msg }
+      .error { kind := .type,
+               message := s!"{base}' (each) requires at least one list argument, got two atoms" }
     | .atom a, _ =>
       let items := kval_to_list y
-      let results ← items.mapM (fun item => apply_dyadic base (.atom a) item)
-      return list_to_kval results
+      do let results ← items.mapM (fun item => apply_dyadic base (.atom a) item)
+         .ok (list_to_kval results)
     | _, .atom a =>
       let items := kval_to_list x
-      let results ← items.mapM (fun item => apply_dyadic base item (.atom a))
-      return list_to_kval results
+      do let results ← items.mapM (fun item => apply_dyadic base item (.atom a))
+         .ok (list_to_kval results)
     | _, _ =>
       let left_items := kval_to_list x
       let right_items := kval_to_list y
       if left_items.length != right_items.length then
-        let msg := s!"{base}' (each) requires lists of equal length, got {left_items.length} and {right_items.length}"
-        throw { kind := .length, message := msg }
-      else
+        .error { kind := .length,
+                 message := s!"{base}' (each) requires lists of equal length, got {left_items.length} and {right_items.length}" }
+      else do
         let results ← (left_items.zip right_items).mapM (fun (l, r) => apply_dyadic base l r)
-        return list_to_kval results
+        .ok (list_to_kval results)
 
-def eval (e : KExpr) : Except KError KVal := do
+/-- Evaluate an expression in an environment.
+    Right-to-left: for dyadic ops, right operand is evaluated first. -/
+def eval (env : KEnv) (e : KExpr) : Except KError KVal :=
   match e with
-  | .val v => return v
-  | .var _ => throw { kind := .value, message := "Variables not implemented" }
+  | .val v => .ok v
+  | .var name =>
+    match env.lookup name with
+    | some v => .ok v
+    | none   => .error { kind := .value, message := s!"Undefined variable '{name}'" }
   | .monadic op e_right =>
-      let v_right ← withCtx s!"in argument of monadic '{op}'" (eval e_right)
-      withCtx s!"in monadic '{op}'" (apply_monadic op v_right)
+    do let v_right ← withCtx s!"in argument of monadic '{op}'" (eval env e_right)
+       withCtx s!"in monadic '{op}'" (apply_monadic op v_right)
   | .dyadic op e_left e_right =>
-      let v_left  ← withCtx s!"in left operand of '{op}'"  (eval e_left)
-      let v_right ← withCtx s!"in right operand of '{op}'" (eval e_right)
-      withCtx s!"in dyadic '{op}'" (apply_dyadic op v_left v_right)
+    -- Right-to-left: evaluate right first
+    do let v_right ← withCtx s!"in right operand of '{op}'" (eval env e_right)
+       let v_left  ← withCtx s!"in left operand of '{op}'"  (eval env e_left)
+       withCtx s!"in dyadic '{op}'" (apply_dyadic op v_left v_right)

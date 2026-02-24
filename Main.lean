@@ -6,7 +6,7 @@ def run_script (input : String) : IO Unit := do
   IO.println $  match parse input with
   | .error e => toString e
   | .ok ast =>
-      match eval ast with
+      match eval [] ast with
       | .ok val => toString val
       | .error e => toString e
 
