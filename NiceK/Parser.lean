@@ -56,10 +56,19 @@ Monadic verbs bind tightly — `!2+3` parses as `(!2)+3`, not `!(2+3)`.
 /-- Parse a term: a chain of monadic verbs applied to a noun.
     Returns `(expr, remaining-items)` with proof the remainder is shorter.
     Structurally recursive on the item list. -/
+private def verbAsValue (v : KVerb) : KExpr :=
+  .val (.fn (.primVerb v))
+
 private def parseTerm (items : List PItem)
     : Except KError (KExpr × { rest : List PItem // rest.length < items.length }) :=
   match items with
   | [] => .error { kind := .parse, message := "Expected expression, got end of input" }
+  | .verb v :: [] =>
+    .ok (verbAsValue v, ⟨[], by simp [List.length_cons]⟩)
+  | .verb v :: (.semi :: tail) =>
+    .ok (verbAsValue v, ⟨.semi :: tail, by simp [List.length_cons]⟩)
+  | .verb v :: (.assign :: tail) =>
+    .ok (verbAsValue v, ⟨.assign :: tail, by simp [List.length_cons]⟩)
   | .verb v :: rest => do
     let (inner, ⟨rest', h⟩) ← parseTerm rest
     .ok (.monadic v inner, ⟨rest', by simp [List.length_cons]; omega⟩)

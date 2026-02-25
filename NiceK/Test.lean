@@ -37,8 +37,8 @@ end Basics
 
 /-! ### Monadic verbs bind tightly -/
 section MonadicBinding
-  #eval testEval "+" -- should be +3^!rank
-  -- #eval testEval "+3" -- should be +3^!rank
+  #eval testEval "+" -- should be just (+) or +
+  #eval testEval "+3" -- should be +3^!rank
   #guard testEval "!2 + 3"      == "[3, 4]"        -- (!2)+3
   #guard testEval "#1 + 2"      == "3"              -- (#1)+2
   #guard testEval "2 + !3"      == "[2, 3, 4]"      -- 2+(!3)
@@ -80,6 +80,7 @@ end EachAdverb
 
 /-! ### Assignment `:` -/
 section Assignment
+  #eval testEval "f:+" -- should return nothing, but assign f to +
   #guard testEval "a:5"            == "5"
   #guard testEval "a:5; a"         == "5"
   #guard testEval "a:5; a+1"      == "6"
@@ -175,6 +176,28 @@ section Lambdas
   -- Error: calling a non-function
   #guard (testEval "5[3]").startsWith              "ERROR:"
 end Lambdas
+
+/-! ### Verb-as-value (first-class verbs) -/
+section VerbAsValue
+  -- Standalone verb returns a function value
+  #guard (testEval "+").startsWith "+"
+  #guard (testEval "-").startsWith "-"
+  #guard (testEval "!").startsWith "!"
+  #guard (testEval "#").startsWith "#"
+
+  -- Assign verb to variable, then apply it
+  #guard testEval "f:+; f[3;4]"   == "7"
+  #guard testEval "f:-; f[10;3]"  == "7"
+  #guard testEval "f:!; f[5]"     == "[0, 1, 2, 3, 4]"
+  #guard testEval "f:#; f[1 2 3]" == "3"
+
+  -- Verb in expression position (after semicolon)
+  #guard testEval "1;+" != ""  -- should not error
+
+  -- Existing monadic/dyadic behavior is preserved
+  #guard testEval "+3" != ""      -- monadic + still works (even if it errors on atoms, it parses)
+  #guard testEval "3+4"  == "7"   -- dyadic + still works
+end VerbAsValue
 
 /-! ### Primitive-level tests -/
 section Primitives

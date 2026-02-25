@@ -117,6 +117,7 @@ inductive KVal where
 
 inductive KFn where
   | user (params : ParamSpec) (arity : Nat) (body : KExpr) (closure : List (String × KVal))
+  | primVerb (v : KVerb)
 
 inductive KExpr where
   | val     : KVal → KExpr
@@ -138,6 +139,7 @@ def KVal.toString : KVal → String
 
 def KFn.toString : KFn → String
   | .user _params _arity body _closure => s!"\{{KExpr.toString body}}"
+  | .primVerb v => KVerb.toString v
 
 def KExpr.toString : KExpr → String
   | .val v            => KVal.toString v

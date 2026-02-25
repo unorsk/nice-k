@@ -50,8 +50,10 @@ def apply_monadic (op : KVerb) (x : KVal) : Except KError KVal :=
     | .fn _    => .ok (.atom 1)
   | .prim .minus => negate x
   | .prim .plus  =>
-    -- monadic + is "flip" for tables; for atoms/vecs it's identity
-    .ok x
+    -- monadic + is "flip" (transpose); atoms/vecs can't be flipped
+    match x with
+    | .box _ => .error { kind := .type, message := "'+' (flip) not yet implemented for nested lists" }
+    | _ => .error { kind := .type, message := "'+' (flip) requires a list of lists, got an atom or flat vector" }
   | .adv .each base =>
     match x with
     | .atom _ =>
@@ -158,6 +160,12 @@ partial def eval : KExpr → EvalM KVal
         let bindings := paramNames.zip argVals
         let callEnv := bindings ++ closure
         withCtx "in function body" (liftE ((eval body callEnv).map (·.1)))
+    | .fn (.primVerb v) =>
+      match argVals with
+      | [x]    => withCtx s!"in monadic '{v}'" (liftE (apply_monadic v x))
+      | [x, y] => withCtx s!"in dyadic '{v}'" (liftE (apply_dyadic v x y))
+      | _      => throwE { kind := .type,
+                           message := s!"Verb '{v}' expects 1 or 2 arguments, got {argVals.length}" }
     | _ => throwE { kind := .type,
                     message := s!"Cannot call a non-function value" }
   | .monadic op e_right => do
