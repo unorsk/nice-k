@@ -15,7 +15,7 @@ This gives correct behaviour for `1-2` (subtract) vs `1 -2` (vector). -/
 inductive TokenKind where
   | int    : Int → TokenKind
   | verb   : Char → TokenKind
-  | adverb : Char → TokenKind
+  | adverb : String → TokenKind
   | lparen : TokenKind
   | rparen : TokenKind
   | lbrace : TokenKind
@@ -30,7 +30,7 @@ deriving BEq, Inhabited
 def TokenKind.toString : TokenKind → String
   | .int i     => s!"int({i})"
   | .verb c    => s!"verb({c})"
-  | .adverb c  => s!"adverb({c})"
+  | .adverb s  => s!"adverb({s})"
   | .lparen    => "("
   | .rparen    => ")"
   | .lbrace    => "{"
@@ -53,8 +53,8 @@ instance : ToString Token := ⟨fun t => s!"{t.kind}@{t.span}"⟩
 def isVerbChar (c : Char) : Bool :=
   c == '+' || c == '!' || c == '#'
 
-def isAdverbChar (c : Char) : Bool :=
-  c == '\''
+def isAdverbStartChar (c : Char) : Bool :=
+  c == '\'' || c == '/' || c == '\\'
 
 /-- Lexer phase: either ready to start a new token, or accumulating
     a multi-character token (digits or identifier). -/
@@ -137,9 +137,33 @@ def lexCore (phase : LexPhase) (chars : List Char) (pos : Nat) (nctx : Bool)
     else if c == ']' then
       do let rest ← lexCore .ready cs (pos + 1) false  -- after ] → noun
          .ok ({ kind := .rbrack, span := ⟨pos, pos + 1⟩ } :: rest)
-    else if isAdverbChar c then
-      do let rest ← lexCore .ready cs (pos + 1) true  -- after adverb → nctx true
-         .ok ({ kind := .adverb c, span := ⟨pos, pos + 1⟩ } :: rest)
+    else if c == '\'' then
+      match h : cs with
+      | ':' :: cs' =>
+        have : cs'.length < (c :: cs).length := by rw [h]; simp [List.length_cons]; omega
+        do let rest ← lexCore .ready cs' (pos + 2) true
+           .ok ({ kind := .adverb "':", span := ⟨pos, pos + 2⟩ } :: rest)
+      | _ =>
+        do let rest ← lexCore .ready cs (pos + 1) true
+           .ok ({ kind := .adverb "'", span := ⟨pos, pos + 1⟩ } :: rest)
+    else if c == '/' then
+      match h : cs with
+      | ':' :: cs' =>
+        have : cs'.length < (c :: cs).length := by rw [h]; simp [List.length_cons]; omega
+        do let rest ← lexCore .ready cs' (pos + 2) true
+           .ok ({ kind := .adverb "/:", span := ⟨pos, pos + 2⟩ } :: rest)
+      | _ =>
+        do let rest ← lexCore .ready cs (pos + 1) true
+           .ok ({ kind := .adverb "/", span := ⟨pos, pos + 1⟩ } :: rest)
+    else if c == '\\' then
+      match h : cs with
+      | ':' :: cs' =>
+        have : cs'.length < (c :: cs).length := by rw [h]; simp [List.length_cons]; omega
+        do let rest ← lexCore .ready cs' (pos + 2) true
+           .ok ({ kind := .adverb "\\:", span := ⟨pos, pos + 2⟩ } :: rest)
+      | _ =>
+        do let rest ← lexCore .ready cs (pos + 1) true
+           .ok ({ kind := .adverb "\\", span := ⟨pos, pos + 1⟩ } :: rest)
     else if isVerbChar c then
       do let rest ← lexCore .ready cs (pos + 1) true  -- after verb → nctx true
          .ok ({ kind := .verb c, span := ⟨pos, pos + 1⟩ } :: rest)
@@ -173,7 +197,7 @@ def lexCore (phase : LexPhase) (chars : List Char) (pos : Nat) (nctx : Bool)
       .error { kind := .parse, message := s!"Unexpected character '{c}'",
                span := some ⟨pos, pos + 1⟩ }
 termination_by (chars.length, phase.rank)
-decreasing_by all_goals simp [LexPhase.rank]; omega
+decreasing_by all_goals simp_all [LexPhase.rank, List.length_cons]; omega
 
 def tokenize (s : String) : Except KError (List Token) :=
   lexCore .ready s.toList 0 true

@@ -76,11 +76,21 @@ def VerbSym.toString : VerbSym → String
 instance : ToString VerbSym := ⟨VerbSym.toString⟩
 
 inductive AdverbSym where
-  | each    -- '
+  | each        -- '   : map over items
+  | eachRight   -- /:  : map fixing left, iterating right
+  | eachLeft    -- \:  : map fixing right, iterating left
+  | eachPrior   -- ':  : apply between successive pairs
+  | over        -- /   : reduce (fold)
+  | scan        -- \   : prefix scan (fold keeping intermediates)
 deriving BEq, Inhabited
 
 def AdverbSym.toString : AdverbSym → String
-  | .each => "'"
+  | .each      => "'"
+  | .eachRight => "/:"
+  | .eachLeft  => "\\:"
+  | .eachPrior => "':"
+  | .over      => "/"
+  | .scan      => "\\"
 
 instance : ToString AdverbSym := ⟨AdverbSym.toString⟩
 
@@ -118,6 +128,7 @@ inductive KVal where
 inductive KFn where
   | user (params : ParamSpec) (arity : Nat) (body : KExpr) (closure : List (String × KVal))
   | primVerb (v : KVerb)
+  | derived (adv : AdverbSym) (base : KFn)
 
 inductive KExpr where
   | val     : KVal → KExpr
@@ -128,6 +139,7 @@ inductive KExpr where
   | dyadic  : KVerb → KExpr → KExpr → KExpr
   | assign  : String → KExpr → KExpr              -- x:y
   | seq     : KExpr → KExpr → KExpr               -- e1;e2
+  | derive  : AdverbSym → KExpr → KExpr           -- expr + adverb (e.g. {x+y}/)
 end
 
 mutual
@@ -140,6 +152,7 @@ def KVal.toString : KVal → String
 def KFn.toString : KFn → String
   | .user _params _arity body _closure => s!"\{{KExpr.toString body}}"
   | .primVerb v => KVerb.toString v
+  | .derived a base => s!"{KFn.toString base}{a}"
 
 def KExpr.toString : KExpr → String
   | .val v            => KVal.toString v
@@ -156,6 +169,7 @@ def KExpr.toString : KExpr → String
   | .dyadic op l r    => s!"({KExpr.toString l} {op} {KExpr.toString r})"
   | .assign x rhs     => s!"({x}:{KExpr.toString rhs})"
   | .seq a b          => s!"({KExpr.toString a};{KExpr.toString b})"
+  | .derive a e       => s!"{KExpr.toString e}{a}"
 end
 
 instance : ToString KVal := ⟨KVal.toString⟩

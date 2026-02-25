@@ -38,6 +38,7 @@ def list_to_kval : List KVal → KVal
     | some ints => .vec ints.toArray
     | none => .box l
 
+mutual
 /-- Apply a verb monadically. -/
 def apply_monadic (op : KVerb) (x : KVal) : Except KError KVal :=
   match op with
@@ -63,6 +64,55 @@ def apply_monadic (op : KVerb) (x : KVal) : Except KError KVal :=
       let items := kval_to_list x
       do let results ← items.mapM (fun item => apply_monadic base item)
          .ok (list_to_kval results)
+  | .adv .over base =>
+    -- Monadic over: reduce a list with the base verb
+    match x with
+    | .atom _ =>
+      .ok x  -- reducing a single atom returns it unchanged
+    | _ =>
+      let items := kval_to_list x
+      match items with
+      | []      => .error { kind := .domain, message := s!"{base}/ (over) requires a non-empty list" }
+      | [a]     => .ok a
+      | a :: as => as.foldlM (fun acc item => apply_dyadic base acc item) a
+  | .adv .scan base =>
+    -- Monadic scan: prefix scan over a list with the base verb
+    match x with
+    | .atom _ =>
+      .ok x  -- scanning a single atom returns it unchanged
+    | _ =>
+      let items := kval_to_list x
+      match items with
+      | []      => .ok (.vec #[])
+      | [a]     => .ok (list_to_kval [a])
+      | a :: as => do
+        let (_, results) ← as.foldlM (fun (acc, rs) item => do
+          let next ← apply_dyadic base acc item
+          pure (next, rs ++ [next])
+        ) (a, [a])
+        .ok (list_to_kval results)
+  | .adv .eachPrior base =>
+    -- Monadic each prior: apply between successive pairs (use 0 as seed for +/-)
+    match x with
+    | .atom _ =>
+      .error { kind := .type,
+               message := s!"{base}': (each prior) requires a list argument, got an atom" }
+    | _ =>
+      let items := kval_to_list x
+      match items with
+      | [] => .ok (.vec #[])
+      | _  =>
+        -- Use identity element 0 as seed for known operators
+        let seed := KVal.atom 0
+        let pairs := (seed :: items).zip items
+        do let results ← pairs.mapM (fun (prev, cur) => apply_dyadic base cur prev)
+           .ok (list_to_kval results)
+  | .adv .eachLeft _ =>
+    .error { kind := .type,
+             message := s!"'{op}' (each left) must be used as a dyadic operator: x {op} y" }
+  | .adv .eachRight _ =>
+    .error { kind := .type,
+             message := s!"'{op}' (each right) must be used as a dyadic operator: x {op} y" }
 
 /-- Apply a verb dyadically. -/
 def apply_dyadic (op : KVerb) (x y : KVal) : Except KError KVal :=
@@ -97,6 +147,41 @@ def apply_dyadic (op : KVerb) (x y : KVal) : Except KError KVal :=
       else do
         let results ← (left_items.zip right_items).mapM (fun (l, r) => apply_dyadic base l r)
         .ok (list_to_kval results)
+  | .adv .eachRight base =>
+    -- Each right: x f/: y → for each item yi in y, compute f(x, yi)
+    let items := kval_to_list y
+    do let results ← items.mapM (fun item => apply_dyadic base x item)
+       .ok (list_to_kval results)
+  | .adv .eachLeft base =>
+    -- Each left: x f\: y → for each item xi in x, compute f(xi, y)
+    let items := kval_to_list x
+    do let results ← items.mapM (fun item => apply_dyadic base item y)
+       .ok (list_to_kval results)
+  | .adv .eachPrior base =>
+    -- Dyadic each prior: left arg is seed, apply between successive pairs of right
+    let items := kval_to_list y
+    match items with
+    | [] => .ok (.vec #[])
+    | _  =>
+      let pairs := (x :: items).zip items
+      do let results ← pairs.mapM (fun (prev, cur) => apply_dyadic base cur prev)
+         .ok (list_to_kval results)
+  | .adv .over base =>
+    -- Dyadic over: x f/ y → fold y starting from x with f
+    let items := kval_to_list y
+    items.foldlM (fun acc item => apply_dyadic base acc item) x
+  | .adv .scan base =>
+    -- Dyadic scan: x f\ y → prefix scan starting from x with f
+    let items := kval_to_list y
+    match items with
+    | [] => .ok (list_to_kval [x])
+    | _  => do
+      let (_, results) ← items.foldlM (fun (acc, rs) item => do
+        let next ← apply_dyadic base acc item
+        pure (next, rs ++ [next])
+      ) (x, [x])
+      .ok (list_to_kval results)
+end
 
 /-! ### Implicit parameter arity inference
 
@@ -113,6 +198,7 @@ private def implicitArity : KExpr → Nat
   | .dyadic _ l r     => max (implicitArity l) (implicitArity r)
   | .assign _ rhs     => implicitArity rhs
   | .seq a b          => max (implicitArity a) (implicitArity b)
+  | .derive _ e       => implicitArity e
   | _                 => 0
 
 /-- Determine the parameter names for implicit params given arity. -/
@@ -124,7 +210,9 @@ private def implicitParamNames : Nat → List String
 
 /-- Evaluate an expression in a stateful environment.
     `partial` because function application evaluates a body that is not
-    structurally smaller than the call-site expression. -/
+    structurally smaller than the call-site expression.
+    `applyKFn` centralizes function application for both primitive verbs
+    and user-defined functions, enabling iterators on lambdas. -/
 partial def eval : KExpr → EvalM KVal
   | .val v => pure v
   | .var name => do
@@ -145,27 +233,17 @@ partial def eval : KExpr → EvalM KVal
       | .explicit names => names.length
       | .implicit       => implicitArity body
     pure (.fn (.user params arity body env))
+  | .derive adv inner => do
+    let v ← eval inner
+    match v with
+    | .fn baseFn => pure (.fn (.derived adv baseFn))
+    | _ => throwE { kind := .type,
+                    message := s!"Iterator '{adv}' requires a function, got {v}" }
   | .app fExpr argExprs => do
     let argVals ← argExprs.mapM (fun a => eval a)
     let fVal ← withCtx "in function position" (eval fExpr)
     match fVal with
-    | .fn (.user params arity body closure) =>
-      if argVals.length != arity then
-        throwE { kind := .type,
-                 message := s!"Function expects {arity} argument(s), got {argVals.length}" }
-      else
-        let paramNames := match params with
-          | .explicit names => names
-          | .implicit       => implicitParamNames arity
-        let bindings := paramNames.zip argVals
-        let callEnv := bindings ++ closure
-        withCtx "in function body" (liftE ((eval body callEnv).map (·.1)))
-    | .fn (.primVerb v) =>
-      match argVals with
-      | [x]    => withCtx s!"in monadic '{v}'" (liftE (apply_monadic v x))
-      | [x, y] => withCtx s!"in dyadic '{v}'" (liftE (apply_dyadic v x y))
-      | _      => throwE { kind := .type,
-                           message := s!"Verb '{v}' expects 1 or 2 arguments, got {argVals.length}" }
+    | .fn f => applyKFn f argVals
     | _ => throwE { kind := .type,
                     message := s!"Cannot call a non-function value" }
   | .monadic op e_right => do
@@ -176,6 +254,141 @@ partial def eval : KExpr → EvalM KVal
     let v_right ← withCtx s!"in right operand of '{op}'" (eval e_right)
     let v_left  ← withCtx s!"in left operand of '{op}'"  (eval e_left)
     withCtx s!"in dyadic '{op}'" (liftE (apply_dyadic op v_left v_right))
+where
+  applyKFn (f : KFn) (args : List KVal) : EvalM KVal :=
+    match f with
+    | .user params arity body closure =>
+      if args.length != arity then
+        throwE { kind := .type,
+                 message := s!"Function expects {arity} argument(s), got {args.length}" }
+      else
+        let paramNames := match params with
+          | .explicit names => names
+          | .implicit       => implicitParamNames arity
+        let bindings := paramNames.zip args
+        let callEnv := bindings ++ closure
+        withCtx "in function body" (liftE ((eval body callEnv).map (·.1)))
+    | .primVerb v =>
+      match args with
+      | [x]    => withCtx s!"in monadic '{v}'" (liftE (apply_monadic v x))
+      | [x, y] => withCtx s!"in dyadic '{v}'" (liftE (apply_dyadic v x y))
+      | _      => throwE { kind := .type,
+                           message := s!"Verb '{v}' expects 1 or 2 arguments, got {args.length}" }
+    | .derived adv base => applyDerived adv base args
+  applyDerived (adv : AdverbSym) (base : KFn) (args : List KVal) : EvalM KVal :=
+    let applyBinary (x y : KVal) : EvalM KVal := applyKFn base [x, y]
+    let applyUnary (x : KVal) : EvalM KVal := applyKFn base [x]
+    match adv, args with
+    -- Each (monadic): apply base to each item
+    | .each, [x] =>
+      match x with
+      | .atom _ => applyUnary x
+      | _ =>
+        let items := kval_to_list x
+        do let results ← items.mapM applyUnary
+           pure (list_to_kval results)
+    -- Each (dyadic / each-both): apply base to corresponding items
+    | .each, [x, y] =>
+      match x, y with
+      | .atom _, .atom _ => applyBinary x y
+      | .atom a, _ =>
+        let items := kval_to_list y
+        do let results ← items.mapM (fun item => applyBinary (.atom a) item)
+           pure (list_to_kval results)
+      | _, .atom a =>
+        let items := kval_to_list x
+        do let results ← items.mapM (fun item => applyBinary item (.atom a))
+           pure (list_to_kval results)
+      | _, _ =>
+        let left_items := kval_to_list x
+        let right_items := kval_to_list y
+        if left_items.length != right_items.length then
+          throwE { kind := .length,
+                   message := s!"{base}' (each) requires lists of equal length, got {left_items.length} and {right_items.length}" }
+        else do
+          let results ← (left_items.zip right_items).mapM (fun (l, r) => applyBinary l r)
+          pure (list_to_kval results)
+    -- Each Right: x f/: y → for each yi, f(x, yi)
+    | .eachRight, [x, y] =>
+      let items := kval_to_list y
+      do let results ← items.mapM (fun item => applyBinary x item)
+         pure (list_to_kval results)
+    -- Each Left: x f\: y → for each xi, f(xi, y)
+    | .eachLeft, [x, y] =>
+      let items := kval_to_list x
+      do let results ← items.mapM (fun item => applyBinary item y)
+         pure (list_to_kval results)
+    -- Each Prior (monadic): seed = 0
+    | .eachPrior, [y] =>
+      let items := kval_to_list y
+      match items with
+      | [] => pure (.vec #[])
+      | _ =>
+        let seed := KVal.atom 0
+        let pairs := (seed :: items).zip items
+        do let results ← pairs.mapM (fun (prev, cur) => applyBinary cur prev)
+           pure (list_to_kval results)
+    -- Each Prior (dyadic): left is seed
+    | .eachPrior, [x, y] =>
+      let items := kval_to_list y
+      match items with
+      | [] => pure (.vec #[])
+      | _ =>
+        let pairs := (x :: items).zip items
+        do let results ← pairs.mapM (fun (prev, cur) => applyBinary cur prev)
+           pure (list_to_kval results)
+    -- Over (monadic): reduce
+    | .over, [x] =>
+      match x with
+      | .atom _ => pure x
+      | _ =>
+        let items := kval_to_list x
+        match items with
+        | [] => throwE { kind := .domain, message := s!"{base}/ (over) requires a non-empty list" }
+        | [a] => pure a
+        | a :: as => do
+          let mut acc := a
+          for item in as do
+            acc ← applyBinary acc item
+          pure acc
+    -- Over (dyadic): fold with seed
+    | .over, [x, y] =>
+      let items := kval_to_list y
+      do let mut acc := x
+         for item in items do
+           acc ← applyBinary acc item
+         pure acc
+    -- Scan (monadic): prefix scan
+    | .scan, [x] =>
+      match x with
+      | .atom _ => pure x
+      | _ =>
+        let items := kval_to_list x
+        match items with
+        | [] => pure (.vec #[])
+        | [a] => pure (list_to_kval [a])
+        | a :: as => do
+          let mut acc := a
+          let mut results := [a]
+          for item in as do
+            acc ← applyBinary acc item
+            results := results ++ [acc]
+          pure (list_to_kval results)
+    -- Scan (dyadic): prefix scan with seed
+    | .scan, [x, y] =>
+      let items := kval_to_list y
+      match items with
+      | [] => pure (list_to_kval [x])
+      | _ => do
+        let mut acc := x
+        let mut results := [x]
+        for item in items do
+          acc ← applyBinary acc item
+          results := results ++ [acc]
+        pure (list_to_kval results)
+    | _, _ =>
+      throwE { kind := .type,
+               message := s!"Iterator '{adv}' cannot be applied with {args.length} argument(s)" }
 
 /-- Run evaluation with an initial environment, returning only the value. -/
 def evalIn (env : KEnv) (e : KExpr) : Except KError KVal :=

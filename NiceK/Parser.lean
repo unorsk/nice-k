@@ -35,10 +35,15 @@ private def charToVerbSym (c : Char) : Except KError VerbSym :=
   | '#' => .ok .hash
   | _   => .error { kind := .parse, message := s!"Unknown verb symbol '{c}'" }
 
-private def charToAdverbSym (c : Char) : Except KError AdverbSym :=
-  match c with
-  | '\'' => .ok .each
-  | _    => .error { kind := .parse, message := s!"Unknown adverb symbol '{c}'" }
+private def stringToAdverbSym (s : String) : Except KError AdverbSym :=
+  match s with
+  | "'"   => .ok .each
+  | "':"  => .ok .eachPrior
+  | "/:"  => .ok .eachRight
+  | "\\:" => .ok .eachLeft
+  | "/"   => .ok .over
+  | "\\"  => .ok .scan
+  | _     => .error { kind := .parse, message := s!"Unknown adverb symbol '{s}'" }
 
 /-- Convert a non-empty list of integers to a KVal. -/
 private def intsToVal : List Int → KVal
@@ -167,6 +172,7 @@ private def implicitArity : KExpr → Nat
   | .dyadic _ l r     => max (implicitArity l) (implicitArity r)
   | .assign _ rhs     => implicitArity rhs
   | .seq a b          => max (implicitArity a) (implicitArity b)
+  | .derive _ e       => implicitArity e
   | _                 => 0
 
 /-! ### Stage 1: Token list → PItem list (single-pass stack + phase machine)
@@ -340,8 +346,8 @@ private def buildItemsCore (ph : BuildPhase) (stk : List Frame) (tokens : List T
     -- Accumulating adverbs onto a verb
     | .verb v vSpan =>
       match t.kind with
-      | .adverb c =>
-        match charToAdverbSym c with
+      | .adverb s =>
+        match stringToAdverbSym s with
         | .ok a  => buildItemsCore (.verb (.adv a v) vSpan) stk ts
         | .error e => .error { e with span := some t.span }
       | _ => do
@@ -357,8 +363,20 @@ private def buildItemsCore (ph : BuildPhase) (stk : List Frame) (tokens : List T
         match charToVerbSym c with
         | .ok sym => buildItemsCore (.verb (.prim sym) t.span) stk ts
         | .error e => .error { e with span := some t.span }
-      | .adverb _ =>
-        .error { kind := .parse, message := "Adverb must follow a verb", span := some t.span }
+      | .adverb s =>
+        match stringToAdverbSym s with
+        | .error e => .error { e with span := some t.span }
+        | .ok a =>
+          -- Allow adverb after a noun (for lambda/variable-based iterators)
+          match stk with
+          | [] => .error { kind := .parse, message := "internal: empty frame stack" }
+          | topFrame :: restFrames =>
+            match topFrame.itemsRev with
+            | .noun e :: parentRest =>
+              let topFrame' := { topFrame with itemsRev := (.noun (.derive a e)) :: parentRest }
+              buildItemsCore .ready (topFrame' :: restFrames) ts
+            | _ => .error { kind := .parse, message := "Adverb must follow a verb or function expression",
+                            span := some t.span }
       | .ident name => do
         let stk' ← pushItem (.noun (.var name)) stk
         buildItemsCore .ready stk' ts

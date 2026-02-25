@@ -186,6 +186,9 @@ section VerbAsValue
   #guard (testEval "#").startsWith "#"
 
   -- Assign verb to variable, then apply it
+  -- #eval testEval "sq:{x+x};sq(5)"
+  #guard testEval "sq:{x*x};sq(5)"   == "25"
+  #guard testEval "sq:{x*x};sq 5"   == "625"
   #guard testEval "f:+; f[3;4]"   == "7"
   #guard testEval "f:-; f[10;3]"  == "7"
   #guard testEval "f:!; f[5]"     == "[0, 1, 2, 3, 4]"
@@ -198,6 +201,83 @@ section VerbAsValue
   #guard testEval "+3" != ""      -- monadic + still works (even if it errors on atoms, it parses)
   #guard testEval "3+4"  == "7"   -- dyadic + still works
 end VerbAsValue
+
+/-! ### Over `/` (reduce) -/
+section Over
+  -- Monadic: reduce a list
+  #guard testEval "+/1 2 3"       == "6"
+  #guard testEval "+/1 2 3 4"     == "10"
+
+  -- Dyadic: fold with seed
+  #guard testEval "10 +/1 2 3"    == "16"
+  #guard testEval "100 -/1 2 3"   == "94"
+
+  -- Single element
+  #guard testEval "+/5"           == "5"
+
+end Over
+
+/-! ### Scan `\` (accumulate) -/
+section Scan
+  -- Monadic: prefix scan
+  #guard testEval "+\\1 2 3"      == "[1, 3, 6]"
+  #guard testEval "+\\1 2 3 4"    == "[1, 3, 6, 10]"
+
+  -- Dyadic: scan with seed
+  #guard testEval "10 +\\1 2 3"   == "[10, 11, 13, 16]"
+end Scan
+
+/-! ### Each Right `/:` -/
+section EachRight
+  -- x f/: y → f[x;] each y
+  #guard testEval "1 +/:1 2 3"    == "[2, 3, 4]"
+  #guard testEval "10 +/:1 2 3"   == "[11, 12, 13]"
+  #guard testEval "10 -/:1 2 3"   == "[9, 8, 7]"
+end EachRight
+
+/-! ### Each Left `\:` -/
+section EachLeft
+  -- x f\: y → f[;y] each x
+  #guard testEval "1 2 3 +\\:10"  == "[11, 12, 13]"
+  #guard testEval "1 2 3 -\\:10"  == "[-9, -8, -7]"
+end EachLeft
+
+/-! ### Each Prior `':` -/
+section EachPrior
+  -- Monadic: apply between successive pairs (seed = 0 for +/-)
+  #guard testEval "-':1 1 2 3 5 8"  == "[1, 0, 1, 1, 2, 3]"
+  #guard testEval "+':1 2 3"        == "[1, 3, 5]"
+
+  -- Dyadic: explicit seed
+  #guard testEval "100 -':1 1 2 3 5 8"  == "[-99, 0, 1, 1, 2, 3]"
+end EachPrior
+
+/-! ### Lambda-based iterators -/
+section LambdaIterators
+  -- Each with lambda (via bracket application)
+  #guard testEval "{x+1}'[1 2 3]"           == "[2, 3, 4]"
+
+  -- Over with lambda
+  #guard testEval "{x+y}/[1 2 3]"           == "6"
+
+  -- Scan with lambda
+  #guard testEval "{x+y}\\[1 2 3]"          == "[1, 3, 6]"
+
+  -- Over with lambda and seed
+  #guard testEval "{x+y}/[100;1 2 3]"       == "106"
+
+  -- Each Right with lambda
+  #guard testEval "{x+y}/:[10;1 2 3]"       == "[11, 12, 13]"
+
+  -- Each Left with lambda
+  #guard testEval "{x+y}\\:[1 2 3;10]"      == "[11, 12, 13]"
+
+  -- Assigned lambda with iterator
+  #guard testEval "f:{x+y}; f/[1 2 3]"      == "6"
+
+  -- Each prior with lambda
+  #guard testEval "{x-y}':[1 1 2 3 5 8]"    == "[1, 0, 1, 1, 2, 3]"
+end LambdaIterators
 
 /-! ### Primitive-level tests -/
 section Primitives
