@@ -187,8 +187,9 @@ section VerbAsValue
 
   -- Assign verb to variable, then apply it
   -- #eval testEval "sq:{x+x};sq(5)"
+  -- #eval testEval "sq:{x+x};sq 5"
   #guard testEval "sq:{x*x};sq(5)"   == "25"
-  #guard testEval "sq:{x*x};sq 5"   == "625"
+  #guard testEval "sq:{x*x};sq 5"   == "25"
   #guard testEval "f:+; f[3;4]"   == "7"
   #guard testEval "f:-; f[10;3]"  == "7"
   #guard testEval "f:!; f[5]"     == "[0, 1, 2, 3, 4]"
@@ -278,6 +279,31 @@ section LambdaIterators
   -- Each prior with lambda
   #guard testEval "{x-y}':[1 1 2 3 5 8]"    == "[1, 0, 1, 1, 2, 3]"
 end LambdaIterators
+
+/-! ### Multiplication `*` -/
+section Multiplication
+  -- Dyadic: multiply
+  #guard testEval "3*4"            == "12"
+  #guard testEval "2*3+1"          == "8"        -- 2*(3+1) = 2*4 = 8 (right-to-left)
+  #guard testEval "0*5"            == "0"
+
+  -- Monadic: first (returns first element)
+  #guard testEval "*1 2 3"         == "1"
+  #guard testEval "*5"             == "5"         -- first of atom is identity
+
+  -- Vectors
+  #guard testEval "(1 2 3)*(4 5 6)"  == "[4, 10, 18]"
+  #guard testEval "2*1 2 3"        == "[2, 4, 6]"   -- scalar broadcast
+end Multiplication
+
+/-! ### Juxtaposition application (`f x` means `f[x]`) -/
+section Juxtaposition
+  #guard testEval "sq:{x+x};sq 5"        == "10"
+  #guard testEval "sq:{x+x};sq [5]"      == "10"
+  #guard testEval "sq:{x+x};sq(5)"       == "10"
+  #guard testEval "f:{x+1}; f 3"         == "4"
+  #guard testEval "f:{x+1}; 1+f 3"       == "5"   -- (1 + (f[3])) = 1 + 4 = 5
+end Juxtaposition
 
 /-! ### Primitive-level tests -/
 section Primitives

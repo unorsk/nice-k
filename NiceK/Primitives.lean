@@ -57,6 +57,45 @@ def sub (a b : KVal) : Except KError KVal :=
   | .box _, _ | _, .box _ => .error { kind := .type, message := "'-' not yet implemented for box values" }
   | .fn _, _ | _, .fn _ => .error { kind := .type, message := "'-' not supported on functions" }
 
+def mul_vectors_core (v1 : KVec) (v2 : KVec) : KVec :=
+  v1.zipWith (· * ·) v2
+
+def mul (a b : KVal) : Except KError KVal :=
+  match a, b with
+  | .atom x, .atom y =>
+      .ok (.atom (x * y))
+
+  | .vec v1, .vec v2 =>
+      if v1.size = v2.size then
+        .ok (.vec (mul_vectors_core v1 v2))
+      else
+        .error { kind := .length, message := s!"Cannot multiply vector of length {v1.size} by vector of length {v2.size}" }
+
+  | .atom x, .vec v =>
+      let scalar_vec := Array.replicate v.size x
+      .ok (.vec $ mul_vectors_core scalar_vec v)
+
+  | .vec v, .atom y =>
+      let scalar_vec := Array.replicate v.size y
+      .ok (.vec $ mul_vectors_core v scalar_vec)
+
+  | .box _, _ | _, .box _ => .error { kind := .type, message := "'*' not yet implemented for box values" }
+  | .fn _, _ | _, .fn _ => .error { kind := .type, message := "'*' not supported on functions" }
+
+def first (x : KVal) : Except KError KVal :=
+  match x with
+  | .atom i  => .ok (.atom i)
+  | .vec v   =>
+    if v.size == 0 then
+      .error { kind := .domain, message := "'*' (first) requires a non-empty list" }
+    else
+      .ok (.atom v[0]!)
+  | .box l   =>
+    match l with
+    | []     => .error { kind := .domain, message := "'*' (first) requires a non-empty list" }
+    | a :: _ => .ok a
+  | .fn f    => .ok (.fn f)
+
 def iota_core (n : ℕ) : KVec := Array.range n |>.map Int.ofNat
 
 def iota (x : KVal) : Except KError KVal :=

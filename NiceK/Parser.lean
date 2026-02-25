@@ -31,6 +31,7 @@ private def charToVerbSym (c : Char) : Except KError VerbSym :=
   match c with
   | '+' => .ok .plus
   | '-' => .ok .minus
+  | '*' => .ok .star
   | '!' => .ok .bang
   | '#' => .ok .hash
   | _   => .error { kind := .parse, message := s!"Unknown verb symbol '{c}'" }
@@ -108,8 +109,10 @@ private def parseTail (left : KExpr) (rest : List PItem)
       match parseTail nextTerm rest'' with
       | .error e => .error e
       | .ok (rightExpr, remaining) => .ok (.dyadic v left rightExpr, remaining)
-  | .noun _ :: _ =>
-    .error { kind := .parse, message := "Two nouns with no verb between them" }
+  | .noun arg :: rest' =>
+    -- Juxtaposition: `f x` is function application, equivalent to `f[x]`
+    have : rest'.length < rest.length := by rw [h]; simp [List.length_cons]
+    parseTail (.app left [arg]) rest'
 termination_by rest.length
 
 /-- Parse a single expression (no semicolons). Returns parsed expr and remaining items. -/

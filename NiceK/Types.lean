@@ -63,6 +63,7 @@ We keep symbols **unclassified** here; the evaluator decides the role. -/
 inductive VerbSym where
   | plus    -- + : add (dyadic) / flip (monadic)
   | minus   -- - : subtract (dyadic) / negate (monadic)
+  | star    -- * : multiply (dyadic) / first (monadic)
   | bang    -- ! : mod (dyadic) / iota (monadic)
   | hash    -- # : take (dyadic) / count (monadic)
 deriving BEq, Inhabited
@@ -70,6 +71,7 @@ deriving BEq, Inhabited
 def VerbSym.toString : VerbSym → String
   | .plus  => "+"
   | .minus => "-"
+  | .star  => "*"
   | .bang  => "!"
   | .hash  => "#"
 
