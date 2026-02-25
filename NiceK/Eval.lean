@@ -28,6 +28,7 @@ def kval_to_list : KVal → List KVal
   | .atom i => [.atom i]
   | .vec v  => v.toList.map .atom
   | .box l  => l
+  | .str s  => [.str s]
   | .fn f   => [.fn f]
 
 def list_to_kval : List KVal → KVal
@@ -48,6 +49,7 @@ def apply_monadic (op : KVerb) (x : KVal) : Except KError KVal :=
     | .vec v   => .ok (.atom v.size)
     | .atom _  => .ok (.atom 1)
     | .box l   => .ok (.atom l.length)
+    | .str s   => .ok (.atom s.length)
     | .fn _    => .ok (.atom 1)
   | .prim .minus => negate x
   | .prim .star  => first x

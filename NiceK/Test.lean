@@ -318,6 +318,27 @@ section Juxtaposition
   #guard testEval "f:{x+1}; 1+f 3"       == "5"   -- (1 + (f[3])) = 1 + 4 = 5
 end Juxtaposition
 
+/-! ### String literals -/
+section Strings
+  -- Basic string values
+  #guard testEval "\"hello\""          == "\"hello\""
+  #guard testEval "\"a\""             == "\"a\""
+  #guard testEval "\"\""              == "\"\""
+
+  -- Count (#) on strings
+  #guard testEval "#\"hello\""        == "5"
+  #guard testEval "#\"\""             == "0"
+
+  -- First (*) on strings
+  #guard testEval "*\"hello\""        == "\"h\""
+
+  -- String in list literal
+  #guard testEval "(\"a\";\"b\";\"c\")"  == "(\"a\"; \"b\"; \"c\")"
+
+  -- Assign string
+  #guard testEval "s:\"hi\"; s"      == "\"hi\""
+end Strings
+
 /-! ### Primitive-level tests -/
 section Primitives
   private def showResult (r : Except KError KVal) : String :=

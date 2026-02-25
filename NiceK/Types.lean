@@ -125,6 +125,7 @@ inductive KVal where
   | atom : Int → KVal
   | vec  : Array Int → KVal
   | box  : List KVal → KVal
+  | str  : String → KVal
   | fn   : KFn → KVal
 
 inductive KFn where
@@ -150,6 +151,7 @@ def KVal.toString : KVal → String
   | .atom i => s!"{i}"
   | .vec v  => s!"{v.toList}"
   | .box l  => s!"({String.intercalate "; " (l.map KVal.toString)})"
+  | .str s  => s!"\"{s}\""
   | .fn f   => KFn.toString f
 
 def KFn.toString : KFn → String

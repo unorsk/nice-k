@@ -23,6 +23,7 @@ inductive TokenKind where
   | lbrack : TokenKind
   | rbrack : TokenKind
   | ident  : String → TokenKind
+  | str    : String → TokenKind
   | colon  : TokenKind
   | semi   : TokenKind
 deriving BEq, Inhabited
@@ -38,6 +39,7 @@ def TokenKind.toString : TokenKind → String
   | .lbrack    => "["
   | .rbrack    => "]"
   | .ident s   => s!"ident({s})"
+  | .str s     => s!"str(\"{s}\")"
   | .colon     => ":"
   | .semi      => ";"
 
@@ -78,6 +80,23 @@ private def mkIntToken (startPos endPos : Nat) (acc : List Char) (neg : Bool) : 
 
 private def mkIdentToken (startPos endPos : Nat) (acc : List Char) : Token :=
   { kind := .ident (String.ofList acc.reverse), span := ⟨startPos, endPos⟩ }
+
+/-- Consume characters inside a string literal until the closing `"`.
+    Returns the string contents, remaining characters (proven shorter than `original`),
+    and the end position. -/
+private def lexString (acc : List Char) (chars : List Char) (pos : Nat) (startPos : Nat)
+    (original : List Char) (h_le : chars.length ≤ original.length)
+    : Except KError (String × { rest : List Char // rest.length < original.length } × Nat) :=
+  match chars with
+  | [] => .error { kind := .parse, message := "Unterminated string literal",
+                   span := some ⟨startPos, pos⟩ }
+  | '"' :: cs =>
+    have : cs.length < original.length := by simp [List.length_cons] at h_le; omega
+    .ok (String.ofList acc.reverse, ⟨cs, this⟩, pos + 1)
+  | c :: cs =>
+    have : cs.length ≤ original.length := by simp [List.length_cons] at h_le; omega
+    lexString (c :: acc) cs (pos + 1) startPos original this
+termination_by chars.length
 
 /-- Core lexer.  Termination by `(chars.length, phase.rank)`:
     - In `ready`, we always consume a char → length decreases.
@@ -189,6 +208,11 @@ def lexCore (phase : LexPhase) (chars : List Char) (pos : Nat) (nctx : Bool)
     else if c == ';' then
       do let rest ← lexCore .ready cs (pos + 1) true
          .ok ({ kind := .semi, span := ⟨pos, pos + 1⟩ } :: rest)
+    else if c == '"' then
+      have h_cs : cs.length ≤ (c :: cs).length := by simp [List.length_cons]
+      do let (s, ⟨cs', h_cs'⟩, endPos) ← lexString [] cs (pos + 1) pos (c :: cs) h_cs
+         let rest ← lexCore .ready cs' endPos false  -- string is a noun
+         .ok ({ kind := .str s, span := ⟨pos, endPos⟩ } :: rest)
     else if c.isDigit then
       lexCore (.digits pos [c] false) cs (pos + 1) nctx
     else if c.isAlpha || c == '_' then
@@ -197,7 +221,7 @@ def lexCore (phase : LexPhase) (chars : List Char) (pos : Nat) (nctx : Bool)
       .error { kind := .parse, message := s!"Unexpected character '{c}'",
                span := some ⟨pos, pos + 1⟩ }
 termination_by (chars.length, phase.rank)
-decreasing_by all_goals simp_all [LexPhase.rank, List.length_cons]; omega
+decreasing_by all_goals simp_all [LexPhase.rank, List.length_cons]; try omega
 
 def tokenize (s : String) : Except KError (List Token) :=
   lexCore .ready s.toList 0 true

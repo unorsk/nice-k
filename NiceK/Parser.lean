@@ -392,6 +392,9 @@ private def buildItemsCore (ph : BuildPhase) (stk : List Frame) (tokens : List T
       | .ident name => do
         let stk' ← pushItem (.noun (.var name)) stk
         buildItemsCore .ready stk' ts
+      | .str s => do
+        let stk' ← pushItem (.noun (.val (.str s))) stk
+        buildItemsCore .ready stk' ts
       | .lparen =>
         let depth := stk.length - 1
         if depth + 1 > maxNestingDepth then

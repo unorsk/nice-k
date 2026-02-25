@@ -26,6 +26,7 @@ def add (a b : KVal) : Except KError KVal :=
       .ok (.vec $ add_vectors_core v scalar_vec)
 
   | .box _, _ | _, .box _ => .error { kind := .type, message := "'+' not yet implemented for box values" }
+  | .str _, _ | _, .str _ => .error { kind := .type, message := "'+' not supported on strings" }
   | .fn _, _ | _, .fn _ => .error { kind := .type, message := "'+' not supported on functions" }
 
 def negate (x : KVal) : Except KError KVal :=
@@ -33,6 +34,7 @@ def negate (x : KVal) : Except KError KVal :=
   | .atom i     => .ok (.atom (-i))
   | .vec v    => .ok (.vec (Array.map (- ·) v))
   | .box _  => .error { kind := .type, message := "'-' (negate) not yet implemented for box values" }
+  | .str _  => .error { kind := .type, message := "'-' (negate) not supported on strings" }
   | .fn _   => .error { kind := .type, message := "'-' (negate) not supported on functions" }
 
 def sub (a b : KVal) : Except KError KVal :=
@@ -55,6 +57,7 @@ def sub (a b : KVal) : Except KError KVal :=
       .ok (.vec $ sub_vectors_core v scalar_vec)
 
   | .box _, _ | _, .box _ => .error { kind := .type, message := "'-' not yet implemented for box values" }
+  | .str _, _ | _, .str _ => .error { kind := .type, message := "'-' not supported on strings" }
   | .fn _, _ | _, .fn _ => .error { kind := .type, message := "'-' not supported on functions" }
 
 def mul_vectors_core (v1 : KVec) (v2 : KVec) : KVec :=
@@ -80,6 +83,7 @@ def mul (a b : KVal) : Except KError KVal :=
       .ok (.vec $ mul_vectors_core v scalar_vec)
 
   | .box _, _ | _, .box _ => .error { kind := .type, message := "'*' not yet implemented for box values" }
+  | .str _, _ | _, .str _ => .error { kind := .type, message := "'*' not supported on strings" }
   | .fn _, _ | _, .fn _ => .error { kind := .type, message := "'*' not supported on functions" }
 
 def first (x : KVal) : Except KError KVal :=
@@ -94,6 +98,11 @@ def first (x : KVal) : Except KError KVal :=
     match l with
     | []     => .error { kind := .domain, message := "'*' (first) requires a non-empty list" }
     | a :: _ => .ok a
+  | .str s   =>
+    if s.isEmpty then
+      .error { kind := .domain, message := "'*' (first) requires a non-empty string" }
+    else
+      .ok (.str (s.front.toString))
   | .fn f    => .ok (.fn f)
 
 def iota_core (n : ℕ) : KVec := Array.range n |>.map Int.ofNat
@@ -124,5 +133,7 @@ def iota (x : KVal) : Except KError KVal :=
 
   | .box _ =>
       .error { kind := .type, message := "'!' (iota) not implemented for box values" }
+  | .str _ =>
+      .error { kind := .type, message := "'!' (iota) not supported on strings" }
   | .fn _ =>
       .error { kind := .type, message := "'!' (iota) not supported on functions" }
