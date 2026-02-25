@@ -19,6 +19,8 @@ inductive TokenKind where
   | lparen : TokenKind
   | rparen : TokenKind
   | ident  : String → TokenKind
+  | colon  : TokenKind
+  | semi   : TokenKind
 deriving BEq, Inhabited
 
 def TokenKind.toString : TokenKind → String
@@ -28,6 +30,8 @@ def TokenKind.toString : TokenKind → String
   | .lparen    => "("
   | .rparen    => ")"
   | .ident s   => s!"ident({s})"
+  | .colon     => ":"
+  | .semi      => ";"
 
 instance : ToString TokenKind := ⟨TokenKind.toString⟩
 
@@ -135,6 +139,12 @@ def lexCore (phase : LexPhase) (chars : List Char) (pos : Nat) (nctx : Bool)
         -- After a noun: always the subtract verb
         do let rest ← lexCore .ready cs (pos + 1) true
            .ok ({ kind := .verb '-', span := ⟨pos, pos + 1⟩ } :: rest)
+    else if c == ':' then
+      do let rest ← lexCore .ready cs (pos + 1) true
+         .ok ({ kind := .colon, span := ⟨pos, pos + 1⟩ } :: rest)
+    else if c == ';' then
+      do let rest ← lexCore .ready cs (pos + 1) true
+         .ok ({ kind := .semi, span := ⟨pos, pos + 1⟩ } :: rest)
     else if c.isDigit then
       lexCore (.digits pos [c] false) cs (pos + 1) nctx
     else if c.isAlpha || c == '_' then

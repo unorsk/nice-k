@@ -47,11 +47,15 @@ inductive KExpr where
   | var     : String → KExpr
   | monadic : KVerb → KExpr → KExpr
   | dyadic  : KVerb → KExpr → KExpr → KExpr
+  | assign  : String → KExpr → KExpr        -- x:y
+  | seq     : KExpr → KExpr → KExpr         -- e1;e2
 
 def KExpr.toString : KExpr → String
   | .val v            => ToString.toString v
   | .var x            => x
   | .monadic op arg   => s!"({op} {arg.toString})"
   | .dyadic op l r    => s!"({l.toString} {op} {r.toString})"
+  | .assign x rhs     => s!"({x}:{rhs.toString})"
+  | .seq a b          => s!"({a.toString};{b.toString})"
 
 instance : ToString KExpr := ⟨KExpr.toString⟩

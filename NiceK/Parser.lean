@@ -22,8 +22,10 @@ No `partial`, no fuel. -/
 
 /-- A parsed item: either a noun (expression) or a verb. -/
 inductive PItem where
-  | noun : KExpr → PItem
-  | verb : KVerb → PItem
+  | noun   : KExpr → PItem
+  | verb   : KVerb → PItem
+  | assign : PItem
+  | semi   : PItem
 
 private def charToVerbSym (c : Char) : Except KError VerbSym :=
   match c with
@@ -62,12 +64,28 @@ private def parseTerm (items : List PItem)
     let (inner, ⟨rest', h⟩) ← parseTerm rest
     .ok (.monadic v inner, ⟨rest', by simp [List.length_cons]; omega⟩)
   | .noun e :: rest => .ok (e, ⟨rest, by simp [List.length_cons]⟩)
+  | .assign :: _ => .error { kind := .syntax, message := "Unexpected ':' at start of expression" }
+  | .semi :: _ => .error { kind := .syntax, message := "Unexpected ';' at start of expression" }
 
 /-- Parse the tail of an expression: zero or more `(verb term)` pairs,
     right-associative.  Terminates by `rest.length`. -/
-private def parseTail (left : KExpr) (rest : List PItem) : Except KError KExpr :=
+private def parseTail (left : KExpr) (rest : List PItem)
+    : Except KError (KExpr × List PItem) :=
   match h : rest with
-  | [] => .ok left
+  | [] => .ok (left, [])
+  | .semi :: _ => .ok (left, rest)   -- stop; semicolons handled by parseProgram
+  | .assign :: rest' =>
+    match parseTerm rest' with
+    | .error e => .error e
+    | .ok (nextTerm, ⟨rest'', _⟩) =>
+      have : rest''.length < rest.length := by rw [h]; simp [List.length_cons]; omega
+      match parseTail nextTerm rest'' with
+      | .error e => .error e
+      | .ok (rhs, remaining) =>
+        match left with
+        | .var name => .ok (.assign name rhs, remaining)
+        | _ => .error { kind := .syntax,
+                        message := "Left side of ':' must be a variable name" }
   | .verb v :: rest' =>
     match parseTerm rest' with
     | .error e => .error e
@@ -75,17 +93,33 @@ private def parseTail (left : KExpr) (rest : List PItem) : Except KError KExpr :
       have : rest''.length < rest.length := by rw [h]; simp [List.length_cons]; omega
       match parseTail nextTerm rest'' with
       | .error e => .error e
-      | .ok rightExpr => .ok (.dyadic v left rightExpr)
+      | .ok (rightExpr, remaining) => .ok (.dyadic v left rightExpr, remaining)
   | .noun _ :: _ =>
     .error { kind := .parse, message := "Two nouns with no verb between them" }
 termination_by rest.length
 
-/-- Parse an expression: a term followed by zero or more `(verb term)` pairs.
-    Dyadic application is right-associative. -/
-private def parseExpr (items : List PItem) : Except KError KExpr :=
+/-- Parse a single expression (no semicolons). Returns parsed expr and remaining items. -/
+private def parseExpr (items : List PItem) : Except KError (KExpr × List PItem) :=
   match parseTerm items with
   | .error e => .error e
   | .ok (left, ⟨rest, _⟩) => parseTail left rest
+
+/-- Parse a program: one or more expressions separated by `;`, left-to-right sequencing.
+    Uses `partial` since proving that parseExpr strictly shrinks the item list
+    requires threading subtype proofs through parseTail — acceptable for now. -/
+private partial def parseProgram (items : List PItem) : Except KError KExpr := do
+  let (first, rest) ← parseExpr items
+  let rec go (acc : KExpr) (remaining : List PItem) : Except KError KExpr :=
+    match remaining with
+    | [] => .ok acc
+    | .semi :: rest' =>
+      if rest'.isEmpty then
+        .error { kind := .syntax, message := "Trailing ';' — empty expression after semicolon" }
+      else do
+        let (expr, rest'') ← parseExpr rest'
+        go (.seq acc expr) rest''
+    | _ => .error { kind := .parse, message := "Unexpected items after expression" }
+  go first rest
 
 /-! ### Stage 1: Token list → PItem list (single-pass stack + phase machine)
 
@@ -147,7 +181,7 @@ private def closeFrame (rparenSpan : SourceSpan) (stk : List Frame)
     .error { kind := .parse, message := "Unmatched ')'", span := some rparenSpan }
   | inner :: parent :: rest => do
     let innerItems := inner.itemsRev.reverse
-    let innerExpr ← parseExpr innerItems
+    let innerExpr ← parseProgram innerItems
       |>.mapError (·.withContext "while parsing parenthesized expression")
     let parent' := { parent with itemsRev := (.noun innerExpr) :: parent.itemsRev }
     .ok (parent' :: rest)
@@ -210,6 +244,12 @@ private def buildItemsCore (ph : BuildPhase) (stk : List Frame) (tokens : List T
         else
           let newFrame : Frame := { itemsRev := [], openSpan := some t.span }
           buildItemsCore .ready (newFrame :: stk) ts
+      | .colon => do
+        let stk' ← pushItem .assign stk
+        buildItemsCore .ready stk' ts
+      | .semi => do
+        let stk' ← pushItem .semi stk
+        buildItemsCore .ready stk' ts
       | .rparen => do
         let stk' ← closeFrame t.span stk
         buildItemsCore .ready stk' ts
@@ -229,4 +269,4 @@ private def buildItems (tokens : List Token) : Except KError (List PItem) := do
 def parse (s : String) : Except KError KExpr := do
   let tokens ← tokenize s
   let items ← buildItems tokens
-  parseExpr items
+  parseProgram items

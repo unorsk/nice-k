@@ -6,17 +6,23 @@ import NiceK.Primitives
 
 Key design choices:
 - **Right-to-left evaluation**: for dyadic ops, the right operand is
-  evaluated before the left.  This is invisible today (no side effects)
-  but will matter once assignment is added.
-- **Environment plumbing**: `KEnv` is threaded through for future
-  variable support.
+  evaluated before the left.  This is now observable via assignment.
+- **StateT-based environment**: `EvalM` threads `KEnv` via `StateT`,
+  supporting assignment (`:`) and sequencing (`;`).
 - Verb dispatch is based on `VerbSym`, deciding monadic vs dyadic
   at the call site. -/
 
 abbrev KEnv := List (String × KVal)
+abbrev EvalM := StateT KEnv (Except KError)
 
-private def withCtx (ctx : String) (m : Except KError α) : Except KError α :=
-  m.mapError (·.withContext ctx)
+private def throwE (e : KError) : EvalM α :=
+  fun _ => .error e
+
+private def liftE (m : Except KError α) : EvalM α :=
+  fun st => m.map (fun a => (a, st))
+
+private def withCtx (ctx : String) (m : EvalM α) : EvalM α :=
+  fun st => (m st).mapError (·.withContext ctx)
 
 def kval_to_list : KVal → List KVal
   | .atom i    => [.atom i]
@@ -88,20 +94,35 @@ def apply_dyadic (op : KVerb) (x y : KVal) : Except KError KVal :=
         let results ← (left_items.zip right_items).mapM (fun (l, r) => apply_dyadic base l r)
         .ok (list_to_kval results)
 
-/-- Evaluate an expression in an environment.
+/-- Evaluate an expression in a stateful environment.
     Right-to-left: for dyadic ops, right operand is evaluated first. -/
-def eval (env : KEnv) (e : KExpr) : Except KError KVal :=
-  match e with
-  | .val v => .ok v
-  | .var name =>
+def eval : KExpr → EvalM KVal
+  | .val v => pure v
+  | .var name => do
+    let env ← get
     match env.lookup name with
-    | some v => .ok v
-    | none   => .error { kind := .value, message := s!"Undefined variable '{name}'" }
-  | .monadic op e_right =>
-    do let v_right ← withCtx s!"in argument of monadic '{op}'" (eval env e_right)
-       withCtx s!"in monadic '{op}'" (apply_monadic op v_right)
-  | .dyadic op e_left e_right =>
+    | some v => pure v
+    | none   => throwE { kind := .value, message := s!"Undefined variable '{name}'" }
+  | .assign name rhs => do
+    let v ← withCtx s!"in RHS of assignment '{name}:'" (eval rhs)
+    modify (fun env => (name, v) :: env)
+    pure v
+  | .seq e1 e2 => do
+    let _ ← withCtx "in left of ';'" (eval e1)
+    withCtx "in right of ';'" (eval e2)
+  | .monadic op e_right => do
+    let v_right ← withCtx s!"in argument of monadic '{op}'" (eval e_right)
+    withCtx s!"in monadic '{op}'" (liftE (apply_monadic op v_right))
+  | .dyadic op e_left e_right => do
     -- Right-to-left: evaluate right first
-    do let v_right ← withCtx s!"in right operand of '{op}'" (eval env e_right)
-       let v_left  ← withCtx s!"in left operand of '{op}'"  (eval env e_left)
-       withCtx s!"in dyadic '{op}'" (apply_dyadic op v_left v_right)
+    let v_right ← withCtx s!"in right operand of '{op}'" (eval e_right)
+    let v_left  ← withCtx s!"in left operand of '{op}'"  (eval e_left)
+    withCtx s!"in dyadic '{op}'" (liftE (apply_dyadic op v_left v_right))
+
+/-- Run evaluation with an initial environment, returning only the value. -/
+def evalIn (env : KEnv) (e : KExpr) : Except KError KVal :=
+  (eval e env).map (fun (v, _) => v)
+
+/-- Run evaluation with an initial environment, returning both value and final env. -/
+def evalWithEnv (env : KEnv) (e : KExpr) : Except KError (KVal × KEnv) :=
+  eval e env
