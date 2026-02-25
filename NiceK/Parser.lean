@@ -9,14 +9,16 @@ Right-to-left, two-level parser for K expressions.
 Pipeline: `String → tokenize → List Token → parse → KExpr`
 
 The parser works in two stages:
-1. Convert flat token list into `PItem`s (handling parens recursively, grouping
-   consecutive ints into vectors, and attaching adverbs to preceding verbs).
+1. Convert flat token list into `PItem`s using a single-pass stack + phase
+   machine (handling parens via a frame stack, grouping consecutive ints,
+   and attaching adverbs to preceding verbs).  Terminates by
+   `(tokens.length, phase.rank)` — same pattern as the lexer.
 2. Parse the item list with two precedence levels:
    - **Term**: a noun optionally preceded by a chain of monadic verbs
      (monadic verbs bind tightly to their immediate right).
    - **Expr**: terms connected by dyadic verbs, right-associative.
 
-Uses fuel-based recursion (`Nat`) — no `partial`, no `!`. -/
+No `partial`, no fuel. -/
 
 /-- A parsed item: either a noun (expression) or a verb. -/
 inductive PItem where
@@ -50,115 +52,176 @@ Monadic verbs bind tightly — `!2+3` parses as `(!2)+3`, not `!(2+3)`.
 `1+2+3` parses as `1+(2+3)`. -/
 
 /-- Parse a term: a chain of monadic verbs applied to a noun.
-    Returns `(expr, remaining-items)`. -/
-private def parseTerm (fuel : Nat) (items : List PItem) : Except KError (KExpr × List PItem) :=
-  match fuel with
-  | 0 => .error { kind := .parse, message := "Expression too deeply nested" }
-  | fuel + 1 =>
-    match items with
-    | [] => .error { kind := .parse, message := "Expected expression, got end of input" }
-    | .verb v :: rest => do
-      let (inner, rest') ← parseTerm fuel rest
-      .ok (.monadic v inner, rest')
-    | .noun e :: rest => .ok (e, rest)
+    Returns `(expr, remaining-items)` with proof the remainder is shorter. -/
+private def parseTerm (items : List PItem)
+    : Except KError (KExpr × { rest : List PItem // rest.length < items.length }) :=
+  match items with
+  | [] => .error { kind := .parse, message := "Expected expression, got end of input" }
+  | .verb v :: rest => do
+    let (inner, ⟨rest', h⟩) ← parseTerm rest
+    .ok (.monadic v inner, ⟨rest', by simp [List.length_cons]; omega⟩)
+  | .noun e :: rest => .ok (e, ⟨rest, by simp [List.length_cons]⟩)
 
 /-- Parse an expression: a term followed by zero or more `(verb term)` pairs.
     Dyadic application is right-associative. -/
-private def parseExpr (fuel : Nat) (items : List PItem) : Except KError KExpr :=
-  match fuel with
-  | 0 => .error { kind := .parse, message := "Expression too deeply nested" }
-  | fuel + 1 => do
-    let (left, rest) ← parseTerm fuel items
+private def parseExpr (items : List PItem) : Except KError KExpr :=
+  match h : parseTerm items with
+  | .error e => .error e
+  | .ok (left, ⟨rest, hrest⟩) =>
     match rest with
     | [] => .ok left
-    | .verb v :: rest' => do
-      let right ← parseExpr fuel rest'
-      .ok (.dyadic v left right)
+    | .verb v :: rest' =>
+      have : rest'.length < items.length := by
+        simp [List.length_cons] at hrest; omega
+      match parseExpr rest' with
+      | .error e => .error e
+      | .ok right => .ok (.dyadic v left right)
     | .noun _ :: _ =>
       .error { kind := .parse, message := "Two nouns with no verb between them" }
+termination_by items.length
 
-/-! ### Stage 1: Token list → PItem list
+/-! ### Stage 1: Token list → PItem list (single-pass stack + phase machine)
 
-We process left-to-right, grouping consecutive int tokens and
-handling parentheses recursively by finding the matching `)`.
+We process left-to-right, consuming one token per step (or flushing the
+current phase with no token consumed but decreasing phase rank).
 
-`fuel` bounds recursion depth (initialized to total token count). -/
+A **frame stack** tracks nested parentheses.  Each frame accumulates
+`PItem`s in reverse order.  On `)` the innermost frame is closed by
+parsing its items into a `KExpr` and pushing it as a noun into the
+parent frame.
 
-/-- Find matching `)` in `tokens`, returning (inner, rest-after-close).
-    `depth` starts at 1. Returns `.error` if unmatched. -/
-private def findClose (tokens : List Token) (depth : Nat) : Except KError (List Token × List Token) :=
+A **max nesting depth** guards against pathological inputs and produces
+a friendly error pointing at the `(` that exceeded the limit. -/
+
+/-- A parenthesis frame: items accumulated so far (in reverse) and the
+    span of the `(` that opened this frame (none for the root). -/
+private structure Frame where
+  itemsRev : List PItem
+  openSpan : Option SourceSpan
+
+/-- Phase of the item builder (mirrors the lexer's phase pattern). -/
+private inductive BuildPhase where
+  | ready
+  | ints (firstSpan : SourceSpan) (accRev : List Int)
+  | verb (v : KVerb) (vSpan : SourceSpan)
+
+private def BuildPhase.rank : BuildPhase → Nat
+  | .ready    => 0
+  | .ints ..  => 1
+  | .verb ..  => 1
+
+/-- Push an item into the topmost frame. -/
+private def pushItem (it : PItem) : List Frame → Except KError (List Frame)
+  | [] => .error { kind := .parse, message := "internal: empty frame stack" }
+  | f :: fs => .ok ({ f with itemsRev := it :: f.itemsRev } :: fs)
+
+/-- Close the innermost frame on `)`, parsing its items into a `KExpr`
+    and pushing the result as a noun into the parent frame. -/
+private def closeFrame (rparenSpan : SourceSpan) (stk : List Frame)
+    : Except KError (List Frame) := do
+  match stk with
+  | [] => .error { kind := .parse, message := "internal: empty frame stack" }
+  | [_root] =>
+    .error { kind := .parse, message := "Unmatched ')'", span := some rparenSpan }
+  | inner :: parent :: rest => do
+    let innerItems := inner.itemsRev.reverse
+    let innerExpr ← parseExpr innerItems
+      |>.mapError (·.withContext "while parsing parenthesized expression")
+    let parent' := { parent with itemsRev := (.noun innerExpr) :: parent.itemsRev }
+    .ok (parent' :: rest)
+
+/-- Maximum allowed parenthesis nesting depth. -/
+def maxParenDepth : Nat := 256
+
+/-- Core single-pass item builder.  Termination by `(tokens.length, phase.rank)`:
+    - In `ready`, we always consume a token → length decreases.
+    - In `ints`/`verb` with matching token, we consume → length decreases.
+    - In `ints`/`verb` with non-matching token, we flush inline to `ready`
+      on the same token list → length same, rank decreases (1→0). -/
+private def buildItemsCore (ph : BuildPhase) (stk : List Frame) (tokens : List Token)
+    : Except KError (List Frame) :=
   match tokens with
-  | [] => .error { kind := .parse, message := "Unmatched '('" }
+  | [] =>
+    -- End of input: flush pending phase and check for unmatched parens
+    match ph with
+    | .ready =>
+      match stk with
+      | [root] => .ok [root]
+      | f :: _ => .error { kind := .parse, message := "Unmatched '('", span := f.openSpan }
+      | [] => .error { kind := .parse, message := "internal: empty frame stack" }
+    | .ints _ accRev => do
+      let stk' ← pushItem (.noun (.val (intsToVal accRev.reverse))) stk
+      match stk' with
+      | [root] => .ok [root]
+      | f :: _ => .error { kind := .parse, message := "Unmatched '('", span := f.openSpan }
+      | [] => .error { kind := .parse, message := "internal: empty frame stack" }
+    | .verb v _ => do
+      let stk' ← pushItem (.verb v) stk
+      match stk' with
+      | [root] => .ok [root]
+      | f :: _ => .error { kind := .parse, message := "Unmatched '('", span := f.openSpan }
+      | [] => .error { kind := .parse, message := "internal: empty frame stack" }
   | t :: ts =>
-    match t.kind with
-    | .lparen => do
-      let (inner, rest) ← findClose ts (depth + 1)
-      .ok (t :: inner, rest)
-    | .rparen =>
-      if depth == 1 then .ok ([], ts)
-      else do
-        let (inner, rest) ← findClose ts (depth - 1)
-        .ok (t :: inner, rest)
-    | _ => do
-      let (inner, rest) ← findClose ts depth
-      .ok (t :: inner, rest)
-
-/-- Collect consecutive int tokens, returning (ints, remaining-tokens). -/
-private def collectInts : List Token → List Int × List Token
-  | { kind := .int i, .. } :: ts =>
-    let (more, rest) := collectInts ts
-    (i :: more, rest)
-  | ts => ([], ts)
-
-/-- Attach any trailing adverb tokens to a verb. -/
-private def attachAdverbs (v : KVerb) : List Token → Except KError (KVerb × List Token)
-  | { kind := .adverb c, span := sp } :: ts =>
-    match charToAdverbSym c with
-    | .ok a  => attachAdverbs (.adv a v) ts
-    | .error e => .error { e with span := some sp }
-  | ts => .ok (v, ts)
-
-/-- Build PItem list from tokens.  `fuel` bounds recursion depth
-    (initialized to total token count). -/
-private def buildItems (fuel : Nat) (tokens : List Token) : Except KError (List PItem) :=
-  match fuel with
-  | 0 => match tokens with
-    | [] => .ok []
-    | _  => .error { kind := .parse, message := "Expression too deeply nested" }
-  | fuel + 1 =>
-    match tokens with
-    | [] => .ok []
-    | t :: ts =>
+    match ph with
+    -- Accumulating consecutive ints
+    | .ints firstSpan accRev =>
+      match t.kind with
+      | .int i => buildItemsCore (.ints firstSpan (i :: accRev)) stk ts
+      | _ => do
+        -- Flush ints, re-dispatch current token in ready (rank 1→0)
+        let stk' ← pushItem (.noun (.val (intsToVal accRev.reverse))) stk
+        buildItemsCore .ready stk' (t :: ts)
+    -- Accumulating adverbs onto a verb
+    | .verb v vSpan =>
+      match t.kind with
+      | .adverb c =>
+        match charToAdverbSym c with
+        | .ok a  => buildItemsCore (.verb (.adv a v) vSpan) stk ts
+        | .error e => .error { e with span := some t.span }
+      | _ => do
+        -- Flush verb, re-dispatch current token in ready (rank 1→0)
+        let stk' ← pushItem (.verb v) stk
+        buildItemsCore .ready stk' (t :: ts)
+    -- Ready: dispatch on current token kind
+    | .ready =>
       match t.kind with
       | .int i =>
-        let (moreInts, rest) := collectInts ts
-        let val := intsToVal (i :: moreInts)
-        do let items ← buildItems fuel rest
-           .ok (.noun (.val val) :: items)
-      | .verb c => do
-        let sym ← charToVerbSym c
-        let v := KVerb.prim sym
-        let (v', rest) ← attachAdverbs v ts
-        let items ← buildItems fuel rest
-        .ok (.verb v' :: items)
+        buildItemsCore (.ints t.span [i]) stk ts
+      | .verb c =>
+        match charToVerbSym c with
+        | .ok sym => buildItemsCore (.verb (.prim sym) t.span) stk ts
+        | .error e => .error { e with span := some t.span }
       | .adverb _ =>
         .error { kind := .parse, message := "Adverb must follow a verb", span := some t.span }
-      | .lparen => do
-        let (inner, rest) ← findClose ts 1
-        let innerItems ← buildItems fuel inner
-        let innerExpr ← parseExpr (innerItems.length + 1) innerItems
-        let items ← buildItems fuel rest
-        .ok (.noun innerExpr :: items)
-      | .rparen =>
-        .error { kind := .parse, message := "Unmatched ')'", span := some t.span }
       | .ident name => do
-        let items ← buildItems fuel ts
-        .ok (.noun (.var name) :: items)
+        let stk' ← pushItem (.noun (.var name)) stk
+        buildItemsCore .ready stk' ts
+      | .lparen =>
+        let depth := stk.length - 1
+        if depth + 1 > maxParenDepth then
+          .error { kind := .parse
+                 , message := s!"Maximum nesting depth exceeded ({maxParenDepth})"
+                 , span := some t.span }
+        else
+          let newFrame : Frame := { itemsRev := [], openSpan := some t.span }
+          buildItemsCore .ready (newFrame :: stk) ts
+      | .rparen => do
+        let stk' ← closeFrame t.span stk
+        buildItemsCore .ready stk' ts
+termination_by (tokens.length, ph.rank)
+decreasing_by all_goals simp [BuildPhase.rank]; omega
+
+/-- Build PItem list from tokens. -/
+private def buildItems (tokens : List Token) : Except KError (List PItem) := do
+  let root : Frame := { itemsRev := [], openSpan := none }
+  let stk ← buildItemsCore .ready [root] tokens
+  match stk with
+  | [root] => .ok root.itemsRev.reverse
+  | _ => .error { kind := .parse, message := "internal: stack not empty at end" }
 
 /-! ### Top-level API -/
 
 def parse (s : String) : Except KError KExpr := do
   let tokens ← tokenize s
-  let fuel := tokens.length + 1
-  let items ← buildItems fuel tokens
-  parseExpr (items.length + 1) items
+  let items ← buildItems tokens
+  parseExpr items
