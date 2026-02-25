@@ -25,14 +25,15 @@ def add (a b : KVal) : Except KError KVal :=
       let scalar_vec := Array.replicate v.size y
       .ok (.vec $ add_vectors_core v scalar_vec)
 
-  | .box _, _ => .error { kind := .type, message := "'+' not yet implemented for box values" }
-  | _, .box _ => .error { kind := .type, message := "'+' not yet implemented for box values" }
+  | .box _, _ | _, .box _ => .error { kind := .type, message := "'+' not yet implemented for box values" }
+  | .fn _, _ | _, .fn _ => .error { kind := .type, message := "'+' not supported on functions" }
 
 def negate (x : KVal) : Except KError KVal :=
   match x with
   | .atom i     => .ok (.atom (-i))
   | .vec v    => .ok (.vec (Array.map (- ·) v))
   | .box _  => .error { kind := .type, message := "'-' (negate) not yet implemented for box values" }
+  | .fn _   => .error { kind := .type, message := "'-' (negate) not supported on functions" }
 
 def sub (a b : KVal) : Except KError KVal :=
   match a, b with
@@ -53,8 +54,8 @@ def sub (a b : KVal) : Except KError KVal :=
       let scalar_vec := Array.replicate v.size y
       .ok (.vec $ sub_vectors_core v scalar_vec)
 
-  | .box _, _ => .error { kind := .type, message := "'-' not yet implemented for box values" }
-  | _, .box _ => .error { kind := .type, message := "'-' not yet implemented for box values" }
+  | .box _, _ | _, .box _ => .error { kind := .type, message := "'-' not yet implemented for box values" }
+  | .fn _, _ | _, .fn _ => .error { kind := .type, message := "'-' not supported on functions" }
 
 def iota_core (n : ℕ) : KVec := Array.range n |>.map Int.ofNat
 
@@ -84,3 +85,5 @@ def iota (x : KVal) : Except KError KVal :=
 
   | .box _ =>
       .error { kind := .type, message := "'!' (iota) not implemented for box values" }
+  | .fn _ =>
+      .error { kind := .type, message := "'!' (iota) not supported on functions" }

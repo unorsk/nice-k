@@ -3,17 +3,7 @@ notation "ℕ" => Nat
 
 def KVec : Type := Array Int
 
-inductive KVal where
-  | atom : Int → KVal
-  | vec : Array Int → KVal
-  | box : List KVal → KVal
-
-def KVal.toString : KVal → String
-  | .atom i => s!"{i}"
-  | .vec v => s!"{v.toList}"
-  | .box l => s!"({String.intercalate "; " (l.map toString)})"
-
-instance : ToString KVal := ⟨KVal.toString⟩
+/-! ## Error types -/
 
 inductive KErrorKind where
   | parse
@@ -64,3 +54,108 @@ instance : ToString KError := ⟨KError.toString⟩
 
 def KError.withContext (e : KError) (ctx : String) : KError :=
   { e with context := ctx :: e.context }
+
+/-! ## Verb and Adverb Symbols
+
+In K, the same symbol can be monadic or dyadic depending on context.
+We keep symbols **unclassified** here; the evaluator decides the role. -/
+
+inductive VerbSym where
+  | plus    -- + : add (dyadic) / flip (monadic)
+  | minus   -- - : subtract (dyadic) / negate (monadic)
+  | bang    -- ! : mod (dyadic) / iota (monadic)
+  | hash    -- # : take (dyadic) / count (monadic)
+deriving BEq, Inhabited
+
+def VerbSym.toString : VerbSym → String
+  | .plus  => "+"
+  | .minus => "-"
+  | .bang  => "!"
+  | .hash  => "#"
+
+instance : ToString VerbSym := ⟨VerbSym.toString⟩
+
+inductive AdverbSym where
+  | each    -- '
+deriving BEq, Inhabited
+
+def AdverbSym.toString : AdverbSym → String
+  | .each => "'"
+
+instance : ToString AdverbSym := ⟨AdverbSym.toString⟩
+
+/-- A verb is a primitive symbol optionally modified by adverbs. -/
+inductive KVerb where
+  | prim : VerbSym → KVerb
+  | adv  : AdverbSym → KVerb → KVerb
+
+def KVerb.toString : KVerb → String
+  | .prim s   => ToString.toString s
+  | .adv a v  => s!"{v.toString}{a}"
+
+instance : ToString KVerb := ⟨KVerb.toString⟩
+
+/-! ## Lambda parameter specification -/
+
+inductive ParamSpec where
+  | explicit (names : List String)   -- {[x;y] ...}
+  | implicit                         -- {...} uses x y z
+deriving Inhabited, BEq
+
+/-! ## Core types: KVal, KFn, KExpr
+
+KVal and KExpr are mutually recursive: a KVal can hold a function
+whose body is a KExpr, and a KExpr literal wraps a KVal.  We define
+them together in a `mutual` block. -/
+
+mutual
+inductive KVal where
+  | atom : Int → KVal
+  | vec  : Array Int → KVal
+  | box  : List KVal → KVal
+  | fn   : KFn → KVal
+
+inductive KFn where
+  | user (params : ParamSpec) (arity : Nat) (body : KExpr) (closure : List (String × KVal))
+
+inductive KExpr where
+  | val     : KVal → KExpr
+  | var     : String → KExpr
+  | lam     : ParamSpec → KExpr → KExpr           -- {[params] body}
+  | app     : KExpr → List KExpr → KExpr          -- f[args]
+  | monadic : KVerb → KExpr → KExpr
+  | dyadic  : KVerb → KExpr → KExpr → KExpr
+  | assign  : String → KExpr → KExpr              -- x:y
+  | seq     : KExpr → KExpr → KExpr               -- e1;e2
+end
+
+mutual
+def KVal.toString : KVal → String
+  | .atom i => s!"{i}"
+  | .vec v  => s!"{v.toList}"
+  | .box l  => s!"({String.intercalate "; " (l.map KVal.toString)})"
+  | .fn f   => KFn.toString f
+
+def KFn.toString : KFn → String
+  | .user _params _arity body _closure => s!"\{{KExpr.toString body}}"
+
+def KExpr.toString : KExpr → String
+  | .val v            => KVal.toString v
+  | .var x            => x
+  | .lam params body  =>
+    let ps := match params with
+      | .explicit names => s!"[{String.intercalate ";" names}] "
+      | .implicit => ""
+    s!"\{{ps}{KExpr.toString body}}"
+  | .app f args       =>
+    let argStrs := args.map KExpr.toString
+    s!"{KExpr.toString f}[{String.intercalate ";" argStrs}]"
+  | .monadic op arg   => s!"({op} {KExpr.toString arg})"
+  | .dyadic op l r    => s!"({KExpr.toString l} {op} {KExpr.toString r})"
+  | .assign x rhs     => s!"({x}:{KExpr.toString rhs})"
+  | .seq a b          => s!"({KExpr.toString a};{KExpr.toString b})"
+end
+
+instance : ToString KVal := ⟨KVal.toString⟩
+instance : ToString KFn := ⟨KFn.toString⟩
+instance : ToString KExpr := ⟨KExpr.toString⟩

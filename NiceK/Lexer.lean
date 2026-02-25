@@ -18,6 +18,10 @@ inductive TokenKind where
   | adverb : Char → TokenKind
   | lparen : TokenKind
   | rparen : TokenKind
+  | lbrace : TokenKind
+  | rbrace : TokenKind
+  | lbrack : TokenKind
+  | rbrack : TokenKind
   | ident  : String → TokenKind
   | colon  : TokenKind
   | semi   : TokenKind
@@ -29,6 +33,10 @@ def TokenKind.toString : TokenKind → String
   | .adverb c  => s!"adverb({c})"
   | .lparen    => "("
   | .rparen    => ")"
+  | .lbrace    => "{"
+  | .rbrace    => "}"
+  | .lbrack    => "["
+  | .rbrack    => "]"
   | .ident s   => s!"ident({s})"
   | .colon     => ":"
   | .semi      => ";"
@@ -117,6 +125,18 @@ def lexCore (phase : LexPhase) (chars : List Char) (pos : Nat) (nctx : Bool)
     else if c == ')' then
       do let rest ← lexCore .ready cs (pos + 1) false  -- after ) → noun
          .ok ({ kind := .rparen, span := ⟨pos, pos + 1⟩ } :: rest)
+    else if c == '{' then
+      do let rest ← lexCore .ready cs (pos + 1) true  -- after { → nctx true
+         .ok ({ kind := .lbrace, span := ⟨pos, pos + 1⟩ } :: rest)
+    else if c == '}' then
+      do let rest ← lexCore .ready cs (pos + 1) false  -- after } → noun (lambda is a value)
+         .ok ({ kind := .rbrace, span := ⟨pos, pos + 1⟩ } :: rest)
+    else if c == '[' then
+      do let rest ← lexCore .ready cs (pos + 1) true  -- after [ → nctx true
+         .ok ({ kind := .lbrack, span := ⟨pos, pos + 1⟩ } :: rest)
+    else if c == ']' then
+      do let rest ← lexCore .ready cs (pos + 1) false  -- after ] → noun
+         .ok ({ kind := .rbrack, span := ⟨pos, pos + 1⟩ } :: rest)
     else if isAdverbChar c then
       do let rest ← lexCore .ready cs (pos + 1) true  -- after adverb → nctx true
          .ok ({ kind := .adverb c, span := ⟨pos, pos + 1⟩ } :: rest)

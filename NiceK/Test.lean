@@ -37,6 +37,8 @@ end Basics
 
 /-! ### Monadic verbs bind tightly -/
 section MonadicBinding
+  #eval testEval "+" -- should be +3^!rank
+  -- #eval testEval "+3" -- should be +3^!rank
   #guard testEval "!2 + 3"      == "[3, 4]"        -- (!2)+3
   #guard testEval "#1 + 2"      == "3"              -- (#1)+2
   #guard testEval "2 + !3"      == "[2, 3, 4]"      -- 2+(!3)
@@ -120,6 +122,59 @@ section Errors
   -- Nested parens OK
   #guard testEval "((1+2))" == "3"
 end Errors
+
+/-! ### Lambda tests -/
+section Lambdas
+  -- Explicit params
+  #guard testEval "{[x] x+1}[3]"           == "4"
+  #guard testEval "{[x;y] x+y}[3;4]"       == "7"
+
+  -- Implicit params (x, y, z)
+  #guard testEval "{x+1}[3]"               == "4"
+  #guard testEval "{x+y}[3;4]"             == "7"
+
+  -- Nullary
+  #guard testEval "{[] 42}[]"               == "42"
+
+  -- Functions are first-class values
+  #guard testEval "f:{x+1}; f[3]"          == "4"
+  #guard testEval "f:{[x;y] x+y}; f[3;4]" == "7"
+
+  -- Closures: capture environment at definition time
+  #guard testEval "a:10; f:{[] a}; f[]"    == "10"
+  #guard testEval "a:10; f:{x+a}; f[5]"   == "15"
+
+  -- Nested lambdas (closure captures outer param)
+  #guard testEval "{[x] {[y] x+y}}[3][4]"  == "7"
+
+  -- Lambda in expressions
+  #guard testEval "1+{x+1}[3]"             == "5"
+
+  -- Multi-expression body
+  #guard testEval "{[x] a:x+1; a+2}[10]"   == "13"
+
+  -- Lambda with z (third implicit param)
+  #guard testEval "{x+y+z}[1;2;3]"         == "6"
+
+  -- Lambda returning a lambda (higher-order)
+  #guard testEval "add:{[x] {[y] x+y}}; add[10][5]" == "15"
+
+  -- Closure captures value, not reference (capture-by-value)
+  #guard testEval "a:1; f:{[] a}; a:2; f[]"  == "1"
+
+  -- Lambda applied to vectors
+  #guard testEval "{x+1}[3 4 5]"            == "[4, 5, 6]"
+
+  -- Chained application
+  #guard testEval "{[x] {[y] {[z] x+y+z}}}[1][2][3]" == "6"
+
+  -- Error: wrong arity
+  #guard (testEval "{[x;y] x+y}[1]").startsWith   "ERROR:"
+  #guard (testEval "{[x] x}[1;2]").startsWith      "ERROR:"
+
+  -- Error: calling a non-function
+  #guard (testEval "5[3]").startsWith              "ERROR:"
+end Lambdas
 
 /-! ### Primitive-level tests -/
 section Primitives

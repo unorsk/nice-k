@@ -25,9 +25,10 @@ private def withCtx (ctx : String) (m : EvalM α) : EvalM α :=
   fun st => (m st).mapError (·.withContext ctx)
 
 def kval_to_list : KVal → List KVal
-  | .atom i    => [.atom i]
+  | .atom i => [.atom i]
   | .vec v  => v.toList.map .atom
-  | .box l => l
+  | .box l  => l
+  | .fn f   => [.fn f]
 
 def list_to_kval : List KVal → KVal
   | []  => .box []
@@ -44,8 +45,9 @@ def apply_monadic (op : KVerb) (x : KVal) : Except KError KVal :=
   | .prim .hash  =>
     match x with
     | .vec v   => .ok (.atom v.size)
-    | .atom _     => .ok (.atom 1)
-    | .box l  => .ok (.atom l.length)
+    | .atom _  => .ok (.atom 1)
+    | .box l   => .ok (.atom l.length)
+    | .fn _    => .ok (.atom 1)
   | .prim .minus => negate x
   | .prim .plus  =>
     -- monadic + is "flip" for tables; for atoms/vecs it's identity
@@ -94,9 +96,34 @@ def apply_dyadic (op : KVerb) (x y : KVal) : Except KError KVal :=
         let results ← (left_items.zip right_items).mapM (fun (l, r) => apply_dyadic base l r)
         .ok (list_to_kval results)
 
+/-! ### Implicit parameter arity inference
+
+Scans a `KExpr` for uses of `x`, `y`, `z` (the implicit parameters).
+Does **not** recurse into nested lambdas, since those have their own scope. -/
+
+private def implicitArity : KExpr → Nat
+  | .var "x"          => 1
+  | .var "y"          => 2
+  | .var "z"          => 3
+  | .lam _ _          => 0   -- stop at nested lambda
+  | .app f as         => max (implicitArity f) (as.foldl (fun m a => max m (implicitArity a)) 0)
+  | .monadic _ e      => implicitArity e
+  | .dyadic _ l r     => max (implicitArity l) (implicitArity r)
+  | .assign _ rhs     => implicitArity rhs
+  | .seq a b          => max (implicitArity a) (implicitArity b)
+  | _                 => 0
+
+/-- Determine the parameter names for implicit params given arity. -/
+private def implicitParamNames : Nat → List String
+  | 0 => []
+  | 1 => ["x"]
+  | 2 => ["x", "y"]
+  | _ => ["x", "y", "z"]
+
 /-- Evaluate an expression in a stateful environment.
-    Right-to-left: for dyadic ops, right operand is evaluated first. -/
-def eval : KExpr → EvalM KVal
+    `partial` because function application evaluates a body that is not
+    structurally smaller than the call-site expression. -/
+partial def eval : KExpr → EvalM KVal
   | .val v => pure v
   | .var name => do
     let env ← get
@@ -110,6 +137,29 @@ def eval : KExpr → EvalM KVal
   | .seq e1 e2 => do
     let _ ← withCtx "in left of ';'" (eval e1)
     withCtx "in right of ';'" (eval e2)
+  | .lam params body => do
+    let env ← get
+    let arity := match params with
+      | .explicit names => names.length
+      | .implicit       => implicitArity body
+    pure (.fn (.user params arity body env))
+  | .app fExpr argExprs => do
+    let argVals ← argExprs.mapM (fun a => eval a)
+    let fVal ← withCtx "in function position" (eval fExpr)
+    match fVal with
+    | .fn (.user params arity body closure) =>
+      if argVals.length != arity then
+        throwE { kind := .type,
+                 message := s!"Function expects {arity} argument(s), got {argVals.length}" }
+      else
+        let paramNames := match params with
+          | .explicit names => names
+          | .implicit       => implicitParamNames arity
+        let bindings := paramNames.zip argVals
+        let callEnv := bindings ++ closure
+        withCtx "in function body" (liftE ((eval body callEnv).map (·.1)))
+    | _ => throwE { kind := .type,
+                    message := s!"Cannot call a non-function value" }
   | .monadic op e_right => do
     let v_right ← withCtx s!"in argument of monadic '{op}'" (eval e_right)
     withCtx s!"in monadic '{op}'" (liftE (apply_monadic op v_right))
