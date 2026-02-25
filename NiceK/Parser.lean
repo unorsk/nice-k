@@ -253,10 +253,19 @@ private def closeParenFrame (rparenSpan : SourceSpan) (stk : List Frame)
     match inner.kind with
     | .paren => do
       let innerItems := inner.itemsRev.reverse
-      let innerExpr ← parseProgram innerItems
-        |>.mapError (·.withContext "while parsing parenthesized expression")
-      let parent' := { parent with itemsRev := (.noun innerExpr) :: parent.itemsRev }
-      .ok (parent' :: rest)
+      let hasSemi := innerItems.any (fun it => match it with | .semi => true | _ => false)
+      if hasSemi || innerItems.isEmpty then
+        -- Semicolons inside parens = list literal: (a;b;c)
+        let es ← parseArgs innerItems
+          |>.mapError (·.withContext "while parsing list literal")
+        let parent' := { parent with itemsRev := (.noun (.list es)) :: parent.itemsRev }
+        .ok (parent' :: rest)
+      else
+        -- No semicolons = grouping: (a+b)
+        let innerExpr ← parseProgram innerItems
+          |>.mapError (·.withContext "while parsing parenthesized expression")
+        let parent' := { parent with itemsRev := (.noun innerExpr) :: parent.itemsRev }
+        .ok (parent' :: rest)
     | _ => .error { kind := .parse, message := "Mismatched ')' — expected a different closing delimiter",
                     span := some rparenSpan }
   | [_root] =>

@@ -141,6 +141,7 @@ inductive KExpr where
   | dyadic  : KVerb → KExpr → KExpr → KExpr
   | assign  : String → KExpr → KExpr              -- x:y
   | seq     : KExpr → KExpr → KExpr               -- e1;e2
+  | list    : List KExpr → KExpr                   -- (e1;e2;e3) list literal
   | derive  : AdverbSym → KExpr → KExpr           -- expr + adverb (e.g. {x+y}/)
 end
 
@@ -171,6 +172,7 @@ def KExpr.toString : KExpr → String
   | .dyadic op l r    => s!"({KExpr.toString l} {op} {KExpr.toString r})"
   | .assign x rhs     => s!"({x}:{KExpr.toString rhs})"
   | .seq a b          => s!"({KExpr.toString a};{KExpr.toString b})"
+  | .list es          => s!"({String.intercalate ";" (es.map KExpr.toString)})"
   | .derive a e       => s!"{KExpr.toString e}{a}"
 end
 

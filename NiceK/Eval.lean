@@ -235,6 +235,9 @@ partial def eval : KExpr → EvalM KVal
       | .explicit names => names.length
       | .implicit       => implicitArity body
     pure (.fn (.user params arity body env))
+  | .list es => do
+    let vs ← es.mapM (fun e => eval e)
+    pure (list_to_kval vs)
   | .derive adv inner => do
     let v ← eval inner
     match v with

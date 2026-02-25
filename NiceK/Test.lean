@@ -95,8 +95,21 @@ end Assignment
 
 /-! ### Semicolons `;` -/
 section Semicolons
+  -- Top-level: sequencing (returns last)
   #guard testEval "1;2;3"      == "3"
   #guard testEval "a:2+3;6+7"  == "13"
+
+  -- Inside parens: list literal
+  #guard testEval "(1;2;3)"       == "[1, 2, 3]"
+  #guard testEval "(1;2+3;4)"     == "[1, 5, 4]"
+  #guard testEval "#(1;2;3)"      == "3"          -- count of 3-element list
+
+  -- Empty parens = empty list
+  #guard testEval "()"            == "()"
+
+  -- Single element in parens = grouping (no semicolons)
+  #guard testEval "(5)"           == "5"
+  #guard testEval "(1+2)"         == "3"
 end Semicolons
 
 /-! ### Error cases -/
