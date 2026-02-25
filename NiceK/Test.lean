@@ -446,6 +446,29 @@ section Division
   #guard testDisplay "1%0"        == "0w"
 end Division
 
+/-! ### Verb trains (tacit composition) -/
+section Trains
+  -- 2-train (atop): (f g) x = f(g(x)), x (f g) y = f(x g y)
+
+  -- Pascal's triangle: p:(+':,);p\1 0 0 0
+  -- Step 1: p[1;0] = +': (1,0) = +': 1 0 = 1 1
+  -- Step 2: p[1 1;0] = +': (1 1,0) = +': 1 1 0 = 1 2 1
+  -- Step 3: p[1 2 1;0] = +': (1 2 1,0) = +': 1 2 1 0 = 1 3 3 1
+  -- Pascal's triangle: each row is +': applied to (prev,0)
+  #guard testDisplay "p:(+':,);p\\1 0 0 0" == "1\n1 1\n1 2 1\n1 3 3 1"
+
+  -- Train as a value applied with brackets
+  #guard testEval "(+':,)[1;0]" == "[1, 1]"
+
+  -- Monadic train: (f g) x = f(g(x))
+  -- (#,) x = #(,x) = count(enlist x) = 1
+  #guard testEval "(#,)[5]" == "1"
+
+  -- Dyadic train: x (f g) y = f(x g y)
+  -- (*,) applied dyadically: first(x,y) = first element of join
+  #guard testEval "(*,)[3;4 5]" == "3"
+end Trains
+
 /-! ### Primitive-level tests -/
 section Primitives
   private def showResult (r : Except KError KVal) : String :=

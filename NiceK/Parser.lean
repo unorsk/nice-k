@@ -263,11 +263,18 @@ private def closeParenFrame (rparenSpan : SourceSpan) (stk : List Frame)
         let parent' := { parent with itemsRev := (.noun (.list es)) :: parent.itemsRev }
         .ok (parent' :: rest)
       else
-        -- No semicolons = grouping: (a+b)
-        let innerExpr ← parseProgram innerItems
-          |>.mapError (·.withContext "while parsing parenthesized expression")
-        let parent' := { parent with itemsRev := (.noun innerExpr) :: parent.itemsRev }
-        .ok (parent' :: rest)
+        -- Check for 2-train: exactly two verbs inside parens → (f g) composition
+        match innerItems with
+        | [.verb f, .verb g] =>
+          let trainFn : KFn := .train2 (.primVerb f) (.primVerb g)
+          let parent' := { parent with itemsRev := (.noun (.val (.fn trainFn))) :: parent.itemsRev }
+          .ok (parent' :: rest)
+        | _ =>
+          -- No semicolons = grouping: (a+b)
+          let innerExpr ← parseProgram innerItems
+            |>.mapError (·.withContext "while parsing parenthesized expression")
+          let parent' := { parent with itemsRev := (.noun innerExpr) :: parent.itemsRev }
+          .ok (parent' :: rest)
     | _ => .error { kind := .parse, message := "Mismatched ')' — expected a different closing delimiter",
                     span := some rparenSpan }
   | [_root] =>

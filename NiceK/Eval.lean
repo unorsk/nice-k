@@ -294,6 +294,17 @@ where
       | _      => throwE { kind := .type,
                            message := s!"Verb '{v}' expects 1 or 2 arguments, got {args.length}" }
     | .derived adv base => applyDerived adv base args
+    | .train2 f g =>
+      match args with
+      | [x] => do
+        let gx ← withCtx "in g of monadic train" (applyKFn g [x])
+        withCtx "in f of monadic train" (applyKFn f [gx])
+      | [x, y] => do
+        let xgy ← withCtx "in g of dyadic train" (applyKFn g [x, y])
+        withCtx "in f of dyadic train" (applyKFn f [xgy])
+      | _ =>
+        throwE { kind := .type,
+                 message := s!"Train expects 1 or 2 argument(s), got {args.length}" }
   applyDerived (adv : AdverbSym) (base : KFn) (args : List KVal) : EvalM KVal :=
     let applyBinary (x y : KVal) : EvalM KVal := applyKFn base [x, y]
     let applyUnary (x : KVal) : EvalM KVal := applyKFn base [x]

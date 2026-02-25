@@ -138,6 +138,7 @@ inductive KFn where
   | user (params : ParamSpec) (arity : Nat) (body : KExpr) (closure : List (String × KVal))
   | primVerb (v : KVerb)
   | derived (adv : AdverbSym) (base : KFn)
+  | train2 (f : KFn) (g : KFn)
 
 inductive KExpr where
   | val     : KVal → KExpr
@@ -175,6 +176,7 @@ def KFn.toString : KFn → String
   | .user _params _arity body _closure => s!"\{{KExpr.toString body}}"
   | .primVerb v => KVerb.toString v
   | .derived a base => s!"{KFn.toString base}{a}"
+  | .train2 f g => s!"({KFn.toString f}{KFn.toString g})"
 
 def KExpr.toString : KExpr → String
   | .val v            => KVal.toString v
