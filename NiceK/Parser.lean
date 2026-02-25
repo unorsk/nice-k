@@ -52,7 +52,8 @@ Monadic verbs bind tightly — `!2+3` parses as `(!2)+3`, not `!(2+3)`.
 `1+2+3` parses as `1+(2+3)`. -/
 
 /-- Parse a term: a chain of monadic verbs applied to a noun.
-    Returns `(expr, remaining-items)` with proof the remainder is shorter. -/
+    Returns `(expr, remaining-items)` with proof the remainder is shorter.
+    Structurally recursive on the item list. -/
 private def parseTerm (items : List PItem)
     : Except KError (KExpr × { rest : List PItem // rest.length < items.length }) :=
   match items with
@@ -62,23 +63,29 @@ private def parseTerm (items : List PItem)
     .ok (.monadic v inner, ⟨rest', by simp [List.length_cons]; omega⟩)
   | .noun e :: rest => .ok (e, ⟨rest, by simp [List.length_cons]⟩)
 
+/-- Parse the tail of an expression: zero or more `(verb term)` pairs,
+    right-associative.  Terminates by `rest.length`. -/
+private def parseTail (left : KExpr) (rest : List PItem) : Except KError KExpr :=
+  match h : rest with
+  | [] => .ok left
+  | .verb v :: rest' =>
+    match parseTerm rest' with
+    | .error e => .error e
+    | .ok (nextTerm, ⟨rest'', _⟩) =>
+      have : rest''.length < rest.length := by rw [h]; simp [List.length_cons]; omega
+      match parseTail nextTerm rest'' with
+      | .error e => .error e
+      | .ok rightExpr => .ok (.dyadic v left rightExpr)
+  | .noun _ :: _ =>
+    .error { kind := .parse, message := "Two nouns with no verb between them" }
+termination_by rest.length
+
 /-- Parse an expression: a term followed by zero or more `(verb term)` pairs.
     Dyadic application is right-associative. -/
 private def parseExpr (items : List PItem) : Except KError KExpr :=
-  match h : parseTerm items with
+  match parseTerm items with
   | .error e => .error e
-  | .ok (left, ⟨rest, hrest⟩) =>
-    match rest with
-    | [] => .ok left
-    | .verb v :: rest' =>
-      have : rest'.length < items.length := by
-        simp [List.length_cons] at hrest; omega
-      match parseExpr rest' with
-      | .error e => .error e
-      | .ok right => .ok (.dyadic v left right)
-    | .noun _ :: _ =>
-      .error { kind := .parse, message := "Two nouns with no verb between them" }
-termination_by items.length
+  | .ok (left, ⟨rest, _⟩) => parseTail left rest
 
 /-! ### Stage 1: Token list → PItem list (single-pass stack + phase machine)
 
@@ -115,6 +122,21 @@ private def pushItem (it : PItem) : List Frame → Except KError (List Frame)
   | [] => .error { kind := .parse, message := "internal: empty frame stack" }
   | f :: fs => .ok ({ f with itemsRev := it :: f.itemsRev } :: fs)
 
+/-- Flush any pending phase into the frame stack (non-recursive helper). -/
+private def flushPhaseToStack (ph : BuildPhase) (stk : List Frame)
+    : Except KError (List Frame) :=
+  match ph with
+  | .ready => .ok stk
+  | .ints _ accRev => pushItem (.noun (.val (intsToVal accRev.reverse))) stk
+  | .verb v _ => pushItem (.verb v) stk
+
+/-- Check that all parentheses are closed at end of input. -/
+private def finalizeEOF (stk : List Frame) : Except KError (List Frame) :=
+  match stk with
+  | [root] => .ok [root]
+  | f :: _ => .error { kind := .parse, message := "Unmatched '('", span := f.openSpan }
+  | [] => .error { kind := .parse, message := "internal: empty frame stack" }
+
 /-- Close the innermost frame on `)`, parsing its items into a `KExpr`
     and pushing the result as a noun into the parent frame. -/
 private def closeFrame (rparenSpan : SourceSpan) (stk : List Frame)
@@ -141,26 +163,9 @@ def maxParenDepth : Nat := 256
 private def buildItemsCore (ph : BuildPhase) (stk : List Frame) (tokens : List Token)
     : Except KError (List Frame) :=
   match tokens with
-  | [] =>
-    -- End of input: flush pending phase and check for unmatched parens
-    match ph with
-    | .ready =>
-      match stk with
-      | [root] => .ok [root]
-      | f :: _ => .error { kind := .parse, message := "Unmatched '('", span := f.openSpan }
-      | [] => .error { kind := .parse, message := "internal: empty frame stack" }
-    | .ints _ accRev => do
-      let stk' ← pushItem (.noun (.val (intsToVal accRev.reverse))) stk
-      match stk' with
-      | [root] => .ok [root]
-      | f :: _ => .error { kind := .parse, message := "Unmatched '('", span := f.openSpan }
-      | [] => .error { kind := .parse, message := "internal: empty frame stack" }
-    | .verb v _ => do
-      let stk' ← pushItem (.verb v) stk
-      match stk' with
-      | [root] => .ok [root]
-      | f :: _ => .error { kind := .parse, message := "Unmatched '('", span := f.openSpan }
-      | [] => .error { kind := .parse, message := "internal: empty frame stack" }
+  | [] => do
+    let stk' ← flushPhaseToStack ph stk
+    finalizeEOF stk'
   | t :: ts =>
     match ph with
     -- Accumulating consecutive ints

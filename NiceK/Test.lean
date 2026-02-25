@@ -33,3 +33,9 @@ def run_e2e (input : String) : IO Unit := do
 #eval run_e2e "1+'1 1"         -- => 2 2
 #eval run_e2e "1+'(1 2)"       -- => 2 3
 #eval run_e2e "(1 1 2)+'1 1 2" -- => 2 2 4
+
+-- ===== Parser: paren / nesting error tests =====
+#eval IO.println "\n--- Parser error tests ---"
+#eval run_e2e "(1+2"            -- Unmatched '('
+#eval run_e2e "1+2)"            -- Unmatched ')'
+#eval run_e2e "((1+2))"         -- Nested parens OK => 3
