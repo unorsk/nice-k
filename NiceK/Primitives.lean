@@ -40,7 +40,7 @@ def sub (a b : KVal) : Except KError KVal :=
       .ok (.atom (x - y))
 
   | .vec v1, .vec v2 =>
-      if h : v1.size = v2.size then
+      if v1.size = v2.size then
         .ok (.vec $ sub_vectors_core v1 v2)
       else
         .error { kind := .length, message := s!"Cannot subtract vector of length {v1.size} from vector of length {v2.size}" }
