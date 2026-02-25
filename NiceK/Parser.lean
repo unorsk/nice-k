@@ -39,9 +39,7 @@ private def charToAdverbSym (c : Char) : Except KError AdverbSym :=
 /-- Convert a non-empty list of integers to a KVal. -/
 private def intsToVal : List Int → KVal
   | [i] => .atom i
-  | is  =>
-    let arr := is.toArray
-    .vec arr.size ⟨arr, rfl⟩
+  | is  => .vec is.toArray
 
 /-! ### Stage 2: Two-level precedence parser
 

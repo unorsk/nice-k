@@ -1,4 +1,4 @@
-import NiceK.Ops
+import NiceK.Primitives
 import NiceK.Parser
 import NiceK.Eval
 
@@ -20,9 +20,9 @@ def run_e2e (input : String) : IO Unit := do
 #eval run_test "Test 1 (!-5)" (iota (.atom (-5)))
 #eval run_test "Test 1 (!5)" (iota (.atom 5))
 #eval run_test "Test 2 (!-1)" (iota (.atom (-1)))
-#eval run_test "Test 3 (!vector)" (iota (.vec 3 (Vector.mk #[1, 2, 3] rfl)))
-#eval run_test "Test 4" (add (.vec 3 (Vector.mk #[1, 2, 3] rfl)) (.vec 3 (Vector.mk #[1, 2, 3] rfl)))
-#eval run_test "Test 4" (add (.vec 3 (Vector.mk #[1, 2, 3] rfl)) (.vec 4 (Vector.mk #[1, 2, 3, 4] rfl)))
+#eval run_test "Test 3 (!vector)" (iota (.vec #[1, 2, 3]))
+#eval run_test "Test 4" (add (.vec #[1, 2, 3]) (.vec #[1, 2, 3]))
+#eval run_test "Test 4" (add (.vec #[1, 2, 3]) (.vec #[1, 2, 3, 4]))
 
 -- ===== Each ' adverb tests =====
 #eval IO.println "\n--- Each ' adverb: negative examples (expect errors) ---"

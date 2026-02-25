@@ -1,6 +1,6 @@
 import NiceK.Types
 import NiceK.AST
-import NiceK.Ops
+import NiceK.Primitives
 
 /-! ## Evaluator
 
@@ -20,7 +20,7 @@ private def withCtx (ctx : String) (m : Except KError α) : Except KError α :=
 
 def kval_to_list : KVal → List KVal
   | .atom i    => [.atom i]
-  | .vec _n v  => v.toList.map .atom
+  | .vec v  => v.toList.map .atom
   | .generic l => l
 
 def list_to_kval : List KVal → KVal
@@ -28,9 +28,7 @@ def list_to_kval : List KVal → KVal
   | [.atom i] => .atom i
   | l   =>
     match l.mapM (fun v => match v with | .atom i => some i | _ => none) with
-    | some ints =>
-      let arr := ints.toArray
-      .vec arr.size ⟨arr, rfl⟩
+    | some ints => .vec ints.toArray
     | none => .generic l
 
 /-- Apply a verb monadically. -/
@@ -39,7 +37,7 @@ def apply_monadic (op : KVerb) (x : KVal) : Except KError KVal :=
   | .prim .bang  => iota x
   | .prim .hash  =>
     match x with
-    | .vec _n v   => .ok (.atom v.size)
+    | .vec v   => .ok (.atom v.size)
     | .atom _     => .ok (.atom 1)
     | .generic l  => .ok (.atom l.length)
   | .prim .minus => negate x
