@@ -6,12 +6,12 @@ def KVec : Type := Array Int
 inductive KVal where
   | atom : Int → KVal
   | vec : Array Int → KVal
-  | generic : List KVal → KVal
+  | box : List KVal → KVal
 
 def KVal.toString : KVal → String
   | .atom i => s!"{i}"
   | .vec v => s!"{v.toList}"
-  | .generic l => s!"({String.intercalate "; " (l.map toString)})"
+  | .box l => s!"({String.intercalate "; " (l.map toString)})"
 
 instance : ToString KVal := ⟨KVal.toString⟩
 

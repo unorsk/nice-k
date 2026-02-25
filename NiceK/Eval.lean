@@ -21,15 +21,15 @@ private def withCtx (ctx : String) (m : Except KError α) : Except KError α :=
 def kval_to_list : KVal → List KVal
   | .atom i    => [.atom i]
   | .vec v  => v.toList.map .atom
-  | .generic l => l
+  | .box l => l
 
 def list_to_kval : List KVal → KVal
-  | []  => .generic []
+  | []  => .box []
   | [.atom i] => .atom i
   | l   =>
     match l.mapM (fun v => match v with | .atom i => some i | _ => none) with
     | some ints => .vec ints.toArray
-    | none => .generic l
+    | none => .box l
 
 /-- Apply a verb monadically. -/
 def apply_monadic (op : KVerb) (x : KVal) : Except KError KVal :=
@@ -39,7 +39,7 @@ def apply_monadic (op : KVerb) (x : KVal) : Except KError KVal :=
     match x with
     | .vec v   => .ok (.atom v.size)
     | .atom _     => .ok (.atom 1)
-    | .generic l  => .ok (.atom l.length)
+    | .box l  => .ok (.atom l.length)
   | .prim .minus => negate x
   | .prim .plus  =>
     -- monadic + is "flip" for tables; for atoms/vecs it's identity

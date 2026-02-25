@@ -25,14 +25,14 @@ def add (a b : KVal) : Except KError KVal :=
       let scalar_vec := Array.replicate v.size y
       .ok (.vec $ add_vectors_core v scalar_vec)
 
-  | .generic _, _ => .error { kind := .type, message := "'+' not yet implemented for generic values" }
-  | _, .generic _ => .error { kind := .type, message := "'+' not yet implemented for generic values" }
+  | .box _, _ => .error { kind := .type, message := "'+' not yet implemented for box values" }
+  | _, .box _ => .error { kind := .type, message := "'+' not yet implemented for box values" }
 
 def negate (x : KVal) : Except KError KVal :=
   match x with
   | .atom i     => .ok (.atom (-i))
   | .vec v    => .ok (.vec (Array.map (- ·) v))
-  | .generic _  => .error { kind := .type, message := "'-' (negate) not yet implemented for generic values" }
+  | .box _  => .error { kind := .type, message := "'-' (negate) not yet implemented for box values" }
 
 def sub (a b : KVal) : Except KError KVal :=
   match a, b with
@@ -53,8 +53,8 @@ def sub (a b : KVal) : Except KError KVal :=
       let scalar_vec := Array.replicate v.size y
       .ok (.vec $ sub_vectors_core v scalar_vec)
 
-  | .generic _, _ => .error { kind := .type, message := "'-' not yet implemented for generic values" }
-  | _, .generic _ => .error { kind := .type, message := "'-' not yet implemented for generic values" }
+  | .box _, _ => .error { kind := .type, message := "'-' not yet implemented for box values" }
+  | _, .box _ => .error { kind := .type, message := "'-' not yet implemented for box values" }
 
 def iota_core (n : ℕ) : KVec := Array.range n |>.map Int.ofNat
 
@@ -80,7 +80,7 @@ def iota (x : KVal) : Except KError KVal :=
           let row : KVec := Array.ofFn (fun (j : Fin total) =>
             Int.ofNat ((j.val / stride) % natDims[i]))
           KVal.vec row
-        .ok (.generic rows)
+        .ok (.box rows)
 
-  | .generic _ =>
-      .error { kind := .type, message := "'!' (iota) not implemented for generic values" }
+  | .box _ =>
+      .error { kind := .type, message := "'!' (iota) not implemented for box values" }
