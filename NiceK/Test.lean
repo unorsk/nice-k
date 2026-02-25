@@ -1,6 +1,7 @@
 import NiceK.Primitives
 import NiceK.Parser
 import NiceK.Eval
+import NiceK.PrettyPrint
 
 /-! ## Test infrastructure
 
@@ -33,12 +34,16 @@ section Basics
   #guard testEval "#1"    == "1"
   #guard testEval "!5"    == "[0, 1, 2, 3, 4]"
   #guard testEval "2 + 3" == "5"
+  #eval testEval "1 2 3 + (4;\"a\";5)"
+  -- #guard testEval "1 2 3 + (4;\"a\";5)" == "5"  -- TODO: box arithmetic not yet implemented
+  #guard testEval "2 6 + 3" == "[5, 9]"
+  #guard testEval "2 6 + 3 -8" == "[5, -2]"
+  -- #eval testEval "(2; 3 4) + ((5 6; 7 8 9); (10; 11 12))"
+  -- #guard testEval "(2; 3 4) + ((5 6; 7 8 9); (10; 11 12))" == "[[7 8 9 10 11], [13  15 16]]"
 end Basics
 
 /-! ### Monadic verbs bind tightly -/
 section MonadicBinding
-  #eval testEval "+" -- should be just (+) or +
-  #eval testEval "+3" -- should be +3^!rank
   #guard testEval "!2 + 3"      == "[3, 4]"        -- (!2)+3
   #guard testEval "#1 + 2"      == "3"              -- (#1)+2
   #guard testEval "2 + !3"      == "[2, 3, 4]"      -- 2+(!3)
@@ -80,7 +85,7 @@ end EachAdverb
 
 /-! ### Assignment `:` -/
 section Assignment
-  #eval testEval "f:+" -- should return nothing, but assign f to +
+  -- #guard testEval "f:+"         == ""??? right now it's "+"
   #guard testEval "a:5"            == "5"
   #guard testEval "a:5; a"         == "5"
   #guard testEval "a:5; a+1"      == "6"
@@ -199,8 +204,6 @@ section VerbAsValue
   #guard (testEval "#").startsWith "#"
 
   -- Assign verb to variable, then apply it
-  -- #eval testEval "sq:{x+x};sq(5)"
-  -- #eval testEval "sq:{x+x};sq 5"
   #guard testEval "sq:{x*x};sq(5)"   == "25"
   #guard testEval "sq:{x*x};sq 5"   == "25"
   #guard testEval "f:+; f[3;4]"   == "7"
@@ -356,6 +359,92 @@ section Comma
   -- Scan with comma: running concatenation of strings
   #guard testEval ",\\(\"a\";\"b\";\"c\")" == "(\"a\"; \"ab\"; \"abc\")"
 end Comma
+
+/-! ### Pretty printing (KDisplay) -/
+section PrettyPrint
+  /-- Parse and evaluate, returning the pretty-printed (K display) result. -/
+  private def testDisplay (input : String) : String :=
+    match parse input with
+    | .error e => s!"ERROR: {e}"
+    | .ok ast =>
+      match evalIn [] ast with
+      | .ok val => kDisplay val
+      | .error e => s!"ERROR: {e}"
+
+  -- Atoms display as numbers
+  #guard testDisplay "5"           == "5"
+  #guard testDisplay "-3"          == "-3"
+
+  -- Vectors display space-separated (not comma-separated)
+  #guard testDisplay "!5"          == "0 1 2 3 4"
+  #guard testDisplay "1 2 3"       == "1 2 3"
+
+  -- Strings display without quotes
+  #guard testDisplay "\"hello\""   == "hello"
+  #guard testDisplay "\"a\""       == "a"
+
+  -- Box (list) displays each element on its own line
+  #guard testDisplay "(\"a\";\"b\";\"c\")" == "a\nb\nc"
+
+  -- The motivating example: scan with comma over strings
+  #guard testDisplay ",\\(\"a\";\"b\";\"c\")" == "a\nab\nabc"
+
+  -- Uniform integer list becomes a vector (space-separated)
+  #guard testDisplay "(1;2;3)"     == "1 2 3"
+
+  -- Empty box
+  #guard testDisplay "()"          == "()"
+
+  -- Enlist (monadic ,) creates a box — single element on one line
+  #guard testDisplay ",1"          == "1"
+end PrettyPrint
+
+/-! ### Division `%` -/
+section Division
+  -- Dyadic: atom % atom
+  #guard testEval "6%3"           == "2.000000"
+  #guard testEval "1%2"           == "0.500000"
+  #guard testEval "10%3"          == "3.333333"
+
+  -- Division by zero
+  #guard testEval "1%0"           == "0w"      -- IEEE: 1/0 = +∞
+  #guard testEval "0%0"           == "0n"      -- IEEE: 0/0 = NaN
+
+  -- Dyadic: vector % atom (scalar broadcast)
+  #guard testEval "6 9 12%3"      == "[2.000000, 3.000000, 4.000000]"
+
+  -- Dyadic: atom % vector (scalar broadcast)
+  #guard testEval "3%1 2 3"       == "[3.000000, 1.500000, 1.000000]"
+
+  -- Dyadic: vector % vector
+  #guard testEval "(10 20 30)%(2 4 5)" == "[5.000000, 5.000000, 6.000000]"
+
+  -- Monadic: reciprocal (%x = 1/x)
+  #guard testEval "%2"            == "0.500000"
+  #guard testEval "%4"            == "0.250000"
+  #guard testEval "%0"            == "0w"
+
+  -- Monadic: reciprocal on vector
+  #guard testEval "%1 2 4"        == "[1.000000, 0.500000, 0.250000]"
+
+  -- Length error
+  #guard (testEval "(1 2 3)%(1 2)").startsWith "ERROR: Length Error"
+
+  -- Type errors
+  #guard (testEval "\"a\"%2").startsWith "ERROR: Type Error"
+
+  -- Verb as value
+  #guard testEval "f:%; f[6;3]"   == "2.000000"
+  #guard testEval "f:%; f[2]"     == "0.500000"
+
+  -- With adverbs: over (fold left) → (1%2)%4 = 0.5%4 = 0.125
+  #guard testEval "%/1 2 4"       == "0.125000"
+
+  -- Pretty-printed (K display) output
+  #guard testDisplay "1%2"        == "0.500000"
+  #guard testDisplay "6 9 12%3"   == "2.000000 3.000000 4.000000"
+  #guard testDisplay "1%0"        == "0w"
+end Division
 
 /-! ### Primitive-level tests -/
 section Primitives

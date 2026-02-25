@@ -35,6 +35,7 @@ private def charToVerbSym (c : Char) : Except KError VerbSym :=
   | ',' => .ok .comma
   | '!' => .ok .bang
   | '#' => .ok .hash
+  | '%' => .ok .percent
   | _   => .error { kind := .parse, message := s!"Unknown verb symbol '{c}'" }
 
 private def stringToAdverbSym (s : String) : Except KError AdverbSym :=

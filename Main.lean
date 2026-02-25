@@ -1,5 +1,6 @@
 import NiceK
 import NiceK.Parser
+import NiceK.PrettyPrint
 
 def runLine (env : KEnv) (line : String) : IO KEnv := do
   match parse line with
@@ -12,7 +13,7 @@ def runLine (env : KEnv) (line : String) : IO KEnv := do
       IO.eprintln (toString e)
       return env
     | .ok (val, env') =>
-      IO.println (toString val)
+      IO.println (kDisplay val)
       return env'
 
 def repl : IO Unit := do

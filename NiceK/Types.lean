@@ -67,15 +67,17 @@ inductive VerbSym where
   | bang    -- ! : mod (dyadic) / iota (monadic)
   | comma   -- , : join (dyadic) / enlist (monadic)
   | hash    -- # : take (dyadic) / count (monadic)
+  | percent -- % : divide (dyadic) / reciprocal (monadic)
 deriving BEq, Inhabited
 
 def VerbSym.toString : VerbSym → String
-  | .plus  => "+"
-  | .minus => "-"
-  | .star  => "*"
-  | .comma => ","
-  | .bang  => "!"
-  | .hash  => "#"
+  | .plus    => "+"
+  | .minus   => "-"
+  | .star    => "*"
+  | .comma   => ","
+  | .bang    => "!"
+  | .hash    => "#"
+  | .percent => "%"
 
 instance : ToString VerbSym := ⟨VerbSym.toString⟩
 
@@ -124,11 +126,13 @@ them together in a `mutual` block. -/
 
 mutual
 inductive KVal where
-  | atom : Int → KVal
-  | vec  : Array Int → KVal
-  | box  : List KVal → KVal
-  | str  : String → KVal
-  | fn   : KFn → KVal
+  | atom  : Int → KVal
+  | vec   : Array Int → KVal
+  | fatom : Float → KVal
+  | fvec  : Array Float → KVal
+  | box   : List KVal → KVal
+  | str   : String → KVal
+  | fn    : KFn → KVal
 
 inductive KFn where
   | user (params : ParamSpec) (arity : Nat) (body : KExpr) (closure : List (String × KVal))
@@ -148,13 +152,24 @@ inductive KExpr where
   | derive  : AdverbSym → KExpr → KExpr           -- expr + adverb (e.g. {x+y}/)
 end
 
+private def posInf : Float := 1.0 / 0.0
+private def negInf : Float := -1.0 / 0.0
+
+def floatToKString (f : Float) : String :=
+  if f.isNaN then "0n"
+  else if f == posInf then "0w"
+  else if f == negInf then "-0w"
+  else f.toString
+
 mutual
 def KVal.toString : KVal → String
-  | .atom i => s!"{i}"
-  | .vec v  => s!"{v.toList}"
-  | .box l  => s!"({String.intercalate "; " (l.map KVal.toString)})"
-  | .str s  => s!"\"{s}\""
-  | .fn f   => KFn.toString f
+  | .atom i  => s!"{i}"
+  | .vec v   => s!"{v.toList}"
+  | .fatom f => floatToKString f
+  | .fvec v  => s!"{v.toList.map floatToKString}"
+  | .box l   => s!"({String.intercalate "; " (l.map KVal.toString)})"
+  | .str s   => s!"\"{s}\""
+  | .fn f    => KFn.toString f
 
 def KFn.toString : KFn → String
   | .user _params _arity body _closure => s!"\{{KExpr.toString body}}"

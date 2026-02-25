@@ -25,19 +25,25 @@ private def withCtx (ctx : String) (m : EvalM α) : EvalM α :=
   fun st => (m st).mapError (·.withContext ctx)
 
 def kval_to_list : KVal → List KVal
-  | .atom i => [.atom i]
-  | .vec v  => v.toList.map .atom
-  | .box l  => l
-  | .str s  => [.str s]
-  | .fn f   => [.fn f]
+  | .atom i  => [.atom i]
+  | .vec v   => v.toList.map .atom
+  | .fatom f => [.fatom f]
+  | .fvec v  => v.toList.map .fatom
+  | .box l   => l
+  | .str s   => [.str s]
+  | .fn f    => [.fn f]
 
 def list_to_kval : List KVal → KVal
   | []  => .box []
   | [.atom i] => .atom i
+  | [.fatom f] => .fatom f
   | l   =>
     match l.mapM (fun v => match v with | .atom i => some i | _ => none) with
     | some ints => .vec ints.toArray
-    | none => .box l
+    | none =>
+      match l.mapM (fun v => match v with | .fatom f => some f | _ => none) with
+      | some floats => .fvec floats.toArray
+      | none => .box l
 
 mutual
 /-- Apply a verb monadically. -/
@@ -47,13 +53,16 @@ def apply_monadic (op : KVerb) (x : KVal) : Except KError KVal :=
   | .prim .hash  =>
     match x with
     | .vec v   => .ok (.atom v.size)
+    | .fvec v  => .ok (.atom v.size)
     | .atom _  => .ok (.atom 1)
+    | .fatom _ => .ok (.atom 1)
     | .box l   => .ok (.atom l.length)
     | .str s   => .ok (.atom s.length)
     | .fn _    => .ok (.atom 1)
   | .prim .minus => negate x
   | .prim .star  => first x
   | .prim .comma => .ok (enlist x)
+  | .prim .percent => recip x
   | .prim .plus  =>
     -- monadic + is "flip" (transpose); atoms/vecs can't be flipped
     match x with
@@ -121,10 +130,11 @@ def apply_monadic (op : KVerb) (x : KVal) : Except KError KVal :=
 /-- Apply a verb dyadically. -/
 def apply_dyadic (op : KVerb) (x y : KVal) : Except KError KVal :=
   match op with
-  | .prim .plus  => add x y
-  | .prim .minus => sub x y
-  | .prim .star  => mul x y
-  | .prim .comma => join x y
+  | .prim .plus    => add x y
+  | .prim .minus   => sub x y
+  | .prim .star    => mul x y
+  | .prim .percent => kdiv x y
+  | .prim .comma   => join x y
   | .prim .bang  =>
     .error { kind := .type,
              message := "Dyadic '!' (mod/key) not yet implemented" }

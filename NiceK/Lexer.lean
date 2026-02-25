@@ -53,7 +53,7 @@ deriving Inhabited
 instance : ToString Token := ⟨fun t => s!"{t.kind}@{t.span}"⟩
 
 def isVerbChar (c : Char) : Bool :=
-  c == '+' || c == '*' || c == ',' || c == '!' || c == '#'
+  c == '+' || c == '*' || c == ',' || c == '!' || c == '#' || c == '%'
 
 def isAdverbStartChar (c : Char) : Bool :=
   c == '\'' || c == '/' || c == '\\'
