@@ -53,6 +53,7 @@ def apply_monadic (op : KVerb) (x : KVal) : Except KError KVal :=
     | .fn _    => .ok (.atom 1)
   | .prim .minus => negate x
   | .prim .star  => first x
+  | .prim .comma => .ok (enlist x)
   | .prim .plus  =>
     -- monadic + is "flip" (transpose); atoms/vecs can't be flipped
     match x with
@@ -123,6 +124,7 @@ def apply_dyadic (op : KVerb) (x y : KVal) : Except KError KVal :=
   | .prim .plus  => add x y
   | .prim .minus => sub x y
   | .prim .star  => mul x y
+  | .prim .comma => join x y
   | .prim .bang  =>
     .error { kind := .type,
              message := "Dyadic '!' (mod/key) not yet implemented" }

@@ -339,6 +339,24 @@ section Strings
   #guard testEval "s:\"hi\"; s"      == "\"hi\""
 end Strings
 
+/-! ### Comma `,` (enlist / join) -/
+section Comma
+  -- Monadic: enlist (wrap in singleton list)
+  #guard testEval ",1"              == "(1)"
+  #guard testEval ",1 2 3"          == "([1, 2, 3])"
+
+  -- Dyadic: join atoms → vector
+  #guard testEval "1,2"             == "[1, 2]"
+  #guard testEval "1,2 3"           == "[1, 2, 3]"
+  #guard testEval "(1 2),(3 4)"     == "[1, 2, 3, 4]"
+
+  -- Dyadic: join strings → concatenation
+  #guard testEval "\"ab\",\"cd\""   == "\"abcd\""
+
+  -- Scan with comma: running concatenation of strings
+  #guard testEval ",\\(\"a\";\"b\";\"c\")" == "(\"a\"; \"ab\"; \"abc\")"
+end Comma
+
 /-! ### Primitive-level tests -/
 section Primitives
   private def showResult (r : Except KError KVal) : String :=

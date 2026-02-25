@@ -105,6 +105,28 @@ def first (x : KVal) : Except KError KVal :=
       .ok (.str (s.front.toString))
   | .fn f    => .ok (.fn f)
 
+def enlist (x : KVal) : KVal := .box [x]
+
+private def toList : KVal → List KVal
+  | .atom i => [KVal.atom i]
+  | .vec v  => v.toList.map KVal.atom
+  | .box l  => l
+  | .str s  => [KVal.str s]
+  | .fn f   => [KVal.fn f]
+
+private def fromList : List KVal → KVal
+  | []  => KVal.box []
+  | [KVal.atom i] => KVal.atom i
+  | l   =>
+    match l.mapM (fun v => match v with | KVal.atom i => some i | _ => none) with
+    | some ints => KVal.vec ints.toArray
+    | none => KVal.box l
+
+def join (x y : KVal) : Except KError KVal :=
+  match x, y with
+  | .str a, .str b => .ok (.str (a ++ b))
+  | _, _ => .ok (fromList (toList x ++ toList y))
+
 def iota_core (n : ℕ) : KVec := Array.range n |>.map Int.ofNat
 
 def iota (x : KVal) : Except KError KVal :=

@@ -32,6 +32,7 @@ private def charToVerbSym (c : Char) : Except KError VerbSym :=
   | '+' => .ok .plus
   | '-' => .ok .minus
   | '*' => .ok .star
+  | ',' => .ok .comma
   | '!' => .ok .bang
   | '#' => .ok .hash
   | _   => .error { kind := .parse, message := s!"Unknown verb symbol '{c}'" }

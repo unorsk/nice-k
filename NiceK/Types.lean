@@ -65,6 +65,7 @@ inductive VerbSym where
   | minus   -- - : subtract (dyadic) / negate (monadic)
   | star    -- * : multiply (dyadic) / first (monadic)
   | bang    -- ! : mod (dyadic) / iota (monadic)
+  | comma   -- , : join (dyadic) / enlist (monadic)
   | hash    -- # : take (dyadic) / count (monadic)
 deriving BEq, Inhabited
 
@@ -72,6 +73,7 @@ def VerbSym.toString : VerbSym → String
   | .plus  => "+"
   | .minus => "-"
   | .star  => "*"
+  | .comma => ","
   | .bang  => "!"
   | .hash  => "#"
 
