@@ -474,7 +474,7 @@ section Take
   -- Basic take from vector
   #guard testEval "2#10 20 30"        == "[10, 20]"
   #guard testEval "5#1 2 3"           == "[1, 2, 3, 1, 2]"     -- cyclic extension
-  #guard testEval "0#1 2 3"           == "[]"                   -- empty result
+  #guard testEval "0#1 2 3"           == "[]"
 
   -- Negative take (from tail, cyclic)
   #guard testEval "-2#10 20 30"       == "[20, 30]"

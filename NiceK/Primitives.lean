@@ -264,8 +264,10 @@ private def takeAtom (n : Int) (y : KVal) : Except KError KVal :=
   let m := n.natAbs
   if m == 0 then
     match y with
-    | .str _ => .ok (.str "")
-    | _      => .ok (.box [])
+    | .str _   => .ok (.str "")
+    | .fvec _  => .ok (.fvec #[])
+    | .fatom _ => .ok (.fvec #[])
+    | _        => .ok (.vec #[])
   else
     match y with
     | .atom i =>
