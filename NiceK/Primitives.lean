@@ -231,6 +231,138 @@ def kdiv (a b : KVal) : Except KError KVal :=
       | .fn _, _ | _, .fn _ => .error { kind := .type, message := "'%' not supported on functions" }
       | _, _ => .error { kind := .type, message := "'%' not supported between these types" }
 
+/-! ### Take / Reshape `#` -/
+
+/-- Compute cyclic start position for negative take.
+    For `n < 0`, we take from the tail, cycling if |n| > len. -/
+private def negStart (len m : Nat) : Nat :=
+  let r := m % len
+  if r == 0 then 0 else len - r
+
+/-- Cyclic fill: produce a list of length `m` by cycling through `src`
+    starting at index `start`. `src` must be non-empty. -/
+private def fillCyclicInt (src : Array Int) (start m : Nat) : Array Int :=
+  let len := src.size
+  (List.range m).toArray.map fun i => src[(start + i) % len]!
+
+private def fillCyclicFloat (src : Array Float) (start m : Nat) : Array Float :=
+  let len := src.size
+  (List.range m).toArray.map fun i => src[(start + i) % len]!
+
+private def fillCyclicChar (src : Array Char) (start m : Nat) : Array Char :=
+  let len := src.size
+  (List.range m).toArray.map fun i => src[(start + i) % len]!
+
+private def fillCyclicKVal (src : Array KVal) (start m : Nat) : Array KVal :=
+  let len := src.size
+  (List.range m).toArray.map fun i =>
+    let idx := (start + i) % len
+    src.getD idx (.atom 0)
+
+/-- Atom take: `n # y` where n is an integer. -/
+private def takeAtom (n : Int) (y : KVal) : Except KError KVal :=
+  let m := n.natAbs
+  if m == 0 then
+    match y with
+    | .str _ => .ok (.str "")
+    | _      => .ok (.box [])
+  else
+    match y with
+    | .atom i =>
+      .ok (.vec (Array.replicate m i))
+    | .fatom f =>
+      .ok (.fvec (Array.replicate m f))
+    | .vec v =>
+      if v.size == 0 then
+        .error { kind := .domain, message := "'#' (take) cannot take from an empty list" }
+      else
+        let start := if n ≥ 0 then 0 else negStart v.size m
+        .ok (.vec (fillCyclicInt v start m))
+    | .fvec v =>
+      if v.size == 0 then
+        .error { kind := .domain, message := "'#' (take) cannot take from an empty list" }
+      else
+        let start := if n ≥ 0 then 0 else negStart v.size m
+        .ok (.fvec (fillCyclicFloat v start m))
+    | .str s =>
+      if s.isEmpty then
+        .error { kind := .domain, message := "'#' (take) cannot take from an empty string" }
+      else
+        let chars := s.toList.toArray
+        let start := if n ≥ 0 then 0 else negStart chars.size m
+        .ok (.str (String.ofList (fillCyclicChar chars start m).toList))
+    | .box l =>
+      if l.isEmpty then
+        .error { kind := .domain, message := "'#' (take) cannot take from an empty list" }
+      else
+        let arr := l.toArray
+        let start := if n ≥ 0 then 0 else negStart arr.size m
+        .ok (fromList (fillCyclicKVal arr start m).toList)
+    | .fn f =>
+      .ok (.box (List.replicate m (.fn f)))
+
+/-- Reshape: `dims # y` where dims is a vector of non-negative integers.
+    Flattens y, fills cyclically to `product(dims)`, then nests into
+    row-major shape. -/
+private def reshape (dims : Array Int) (y : KVal) : Except KError KVal := do
+  if dims.size == 0 then
+    .error { kind := .domain, message := "'#' (reshape) requires at least one dimension" }
+  else if dims.any (· < 0) then
+    .error { kind := .domain, message := s!"'#' (reshape) dimensions must be non-negative, got {dims.toList}" }
+  else
+    let natDims := dims.map Int.toNat
+    let total := natDims.foldl (· * ·) 1
+    match y with
+    | .str s =>
+      if s.isEmpty && total > 0 then
+        .error { kind := .domain, message := "'#' (reshape) cannot reshape an empty string" }
+      else
+        let chars := s.toList.toArray
+        let flat := if total == 0 then #[] else fillCyclicChar chars 0 total
+        .ok (reshapeChars natDims.toList flat 0)
+    | _ =>
+      let src := flattenToArray y
+      if src.size == 0 && total > 0 then
+        .error { kind := .domain, message := "'#' (reshape) cannot reshape an empty list" }
+      else
+        let flat := if total == 0 then #[] else fillCyclicKVal src 0 total
+        .ok (reshapeKVals natDims.toList flat 0)
+where
+  flattenToArray (v : KVal) : Array KVal :=
+    match v with
+    | .atom i  => #[.atom i]
+    | .fatom f => #[.fatom f]
+    | .vec v   => v.map .atom
+    | .fvec v  => v.map .fatom
+    | .box l   => l.toArray
+    | .str s   => #[.str s]
+    | .fn f    => #[.fn f]
+  reshapeKVals (dims : List Nat) (flat : Array KVal) (offset : Nat) : KVal :=
+    match dims with
+    | []      => .box []
+    | [d]     => fromList (flat.toList.drop offset |>.take d)
+    | d :: ds =>
+      let chunkSize := ds.foldl (· * ·) 1
+      let rows := List.range d |>.map fun i =>
+        reshapeKVals ds flat (offset + i * chunkSize)
+      .box rows
+  reshapeChars (dims : List Nat) (flat : Array Char) (offset : Nat) : KVal :=
+    match dims with
+    | []      => .str ""
+    | [d]     => .str (String.ofList (flat.toList.drop offset |>.take d))
+    | d :: ds =>
+      let chunkSize := ds.foldl (· * ·) 1
+      let rows := List.range d |>.map fun i =>
+        reshapeChars ds flat (offset + i * chunkSize)
+      .box rows
+
+def take_ (x y : KVal) : Except KError KVal :=
+  match x with
+  | .atom n   => takeAtom n y
+  | .vec dims => reshape dims y
+  | _         => .error { kind := .type,
+                          message := s!"'#' (take/reshape) expects an integer or integer vector on the left, got {x}" }
+
 def recip (x : KVal) : Except KError KVal :=
   match x with
   | .atom i  => .ok (.fatom (kRecip (Float.ofInt i)))

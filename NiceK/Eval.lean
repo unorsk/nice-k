@@ -138,9 +138,7 @@ def apply_dyadic (op : KVerb) (x y : KVal) : Except KError KVal :=
   | .prim .bang  =>
     .error { kind := .type,
              message := "Dyadic '!' (mod/key) not yet implemented" }
-  | .prim .hash =>
-    .error { kind := .type,
-             message := "Dyadic '#' (take/reshape) not yet implemented" }
+  | .prim .hash => take_ x y
   | .adv .each base =>
     match x, y with
     | .atom _, .atom _ =>

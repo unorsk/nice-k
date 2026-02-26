@@ -469,6 +469,40 @@ section Trains
   #guard testEval "(*,)[3;4 5]" == "3"
 end Trains
 
+/-! ### Dyadic `#` (take / reshape) -/
+section Take
+  -- Basic take from vector
+  #guard testEval "2#10 20 30"        == "[10, 20]"
+  #guard testEval "5#1 2 3"           == "[1, 2, 3, 1, 2]"     -- cyclic extension
+  #guard testEval "0#1 2 3"           == "[]"                   -- empty result
+
+  -- Negative take (from tail, cyclic)
+  #guard testEval "-2#10 20 30"       == "[20, 30]"
+  #guard testEval "-5#1 2 3"          == "[2, 3, 1, 2, 3]"     -- cyclic from tail
+
+  -- Replicate atom
+  #guard testEval "4#4"               == "[4, 4, 4, 4]"
+  #guard testEval "3#7"               == "[7, 7, 7]"
+  #guard testEval "0#5"               == "[]"
+
+  -- String take / replicate
+  #guard testEval "4#\"a\""           == "\"aaaa\""
+  #guard testEval "3#\"ab\""          == "\"aba\""
+  #guard testEval "-3#\"abcde\""      == "\"cde\""
+  #guard testEval "0#\"abc\""         == "\"\""
+
+  -- Reshape (vector left arg)
+  #guard testDisplay "3 3#1 2 3 4"    == "1 2 3\n4 1 2\n3 4 1"
+  #guard testDisplay "2 3#1 2 3 4 5 6" == "1 2 3\n4 5 6"
+  #guard testDisplay "2 5#\"!\""      == "!!!!!\n!!!!!"
+
+  -- Verb as value
+  #guard testEval "f:#; f[4;4]"       == "[4, 4, 4, 4]"
+
+  -- Error: left arg is not int
+  #guard (testEval "\"a\"#1 2 3").startsWith "ERROR: Type Error"
+end Take
+
 /-! ### Primitive-level tests -/
 section Primitives
   private def showResult (r : Except KError KVal) : String :=
